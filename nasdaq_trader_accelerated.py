@@ -490,32 +490,61 @@ class AcceleratedNasdaqTrader:
             # Add browser cookie authentication if enabled
             info = None
             if enable_browser_cookies:
-                # Try each browser in order until one works
-                last_error = None
-                for browser in preferred_browsers:
+                # Try manual cookie file first (cookies.txt)
+                cookie_file = 'cookies.txt'
+                if os.path.exists(cookie_file):
                     try:
-                        self.logger.info(f"Attempting authentication with {browser} browser cookies")
+                        self.logger.info(f"Attempting authentication with manual cookie file: {cookie_file}")
                         ydl_opts_with_auth = ydl_opts.copy()
-                        ydl_opts_with_auth['cookiesfrombrowser'] = (browser,)
+                        ydl_opts_with_auth['cookiefile'] = cookie_file
                         
                         with YoutubeDL(ydl_opts_with_auth) as ydl:
                             info = ydl.extract_info(url, download=True)
-                            self.logger.info(f"Successfully authenticated using {browser} browser cookies")
-                            break  # Success, exit the browser loop
+                            self.logger.info(f"Successfully authenticated using cookie file: {cookie_file}")
                     except Exception as e:
-                        last_error = e
-                        self.logger.warning(f"Authentication failed with {browser}: {str(e)[:100]}")
-                        continue  # Try next browser
-                else:
-                    # All browsers failed
-                    if fallback_to_no_auth:
-                        self.logger.warning("All browser authentication attempts failed, trying without authentication")
-                        # Fallback to no authentication
-                        with YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=True)
-                    else:
-                        # Re-raise the last error if fallback is disabled
-                        raise last_error if last_error else Exception("All browser authentication attempts failed")
+                        self.logger.warning(f"Cookie file authentication failed: {str(e)[:100]}")
+                
+                # If cookie file didn't work, try browsers
+                if info is None:
+                    last_error = None
+                    for browser in preferred_browsers:
+                        try:
+                            self.logger.info(f"Attempting authentication with {browser} browser cookies")
+                            # Note: Close browser before running to avoid database lock issues
+                            ydl_opts_with_auth = ydl_opts.copy()
+                            ydl_opts_with_auth['cookiesfrombrowser'] = (browser,)
+                            
+                            with YoutubeDL(ydl_opts_with_auth) as ydl:
+                                info = ydl.extract_info(url, download=True)
+                                self.logger.info(f"Successfully authenticated using {browser} browser cookies")
+                                break  # Success, exit the browser loop
+                        except Exception as e:
+                            last_error = e
+                            error_msg = str(e)
+                            # Provide helpful error messages
+                            if "Could not copy" in error_msg or "cookie database" in error_msg:
+                                self.logger.warning(f"Authentication failed with {browser}: Browser may be open. Please close {browser} and try again.")
+                            elif "DPAPI" in error_msg or "decrypt" in error_msg:
+                                self.logger.warning(f"Authentication failed with {browser}: Encryption issue. Try using cookies.txt file instead.")
+                            elif "members" in error_msg or "Join this channel" in error_msg:
+                                self.logger.warning(f"Authentication failed with {browser}: Cookies don't have membership access. Make sure you're logged in and a member.")
+                            else:
+                                self.logger.warning(f"Authentication failed with {browser}: {error_msg[:100]}")
+                            continue  # Try next browser
+                    
+                    if info is None:
+                        # All browsers failed
+                        if fallback_to_no_auth:
+                            self.logger.warning("All browser authentication attempts failed, trying without authentication")
+                            # Fallback to no authentication
+                            with YoutubeDL(ydl_opts) as ydl:
+                                info = ydl.extract_info(url, download=True)
+                        else:
+                            # Re-raise the last error if fallback is disabled
+                            if last_error:
+                                raise last_error
+                            else:
+                                raise Exception("All browser authentication attempts failed. Tip: Close your browser, ensure you're logged into YouTube as a member, or export cookies to cookies.txt file.")
             else:
                 # No authentication configured, proceed normally
                 with YoutubeDL(ydl_opts) as ydl:

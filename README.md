@@ -34,6 +34,7 @@ Nasdaq_Trader_Local/
 ├── ⚡ nasdaq_trader_accelerated.py       # Core engine (library)
 ├── 🔍 ticker_validator.py               # Ticker validation utility
 ├── 📋 video_list.txt                    # Input: YouTube video URLs
+├── 🍪 cookies.txt                       # YouTube authentication (optional, for members-only videos)
 ├── 📁 video_cache/                       # Cached audio files (with dates)
 ├── 📁 transcript_cache/                  # Cached transcripts (with dates)
 ├── 📁 summary/                           # Generated trading reports (.txt, .json, .html)
@@ -156,6 +157,28 @@ The system generates comprehensive trading reports with:
 3. **Get your Gemini API key from:** [Google AI Studio](https://makersuite.google.com/app/apikey)
 
 **The .env file is automatically ignored by git to prevent accidental exposure of your API keys.**
+
+### **YouTube Authentication for Members-Only Videos**
+
+If you need to download members-only YouTube videos, you can provide authentication via cookies:
+
+#### **Option 1: Manual Cookie Export (Recommended)**
+1. **Install browser extension**: "Get cookies.txt LOCALLY"
+   - Chrome: https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc
+   - Firefox: https://addons.mozilla.org/en-US/firefox/addon/get-cookies-txt-locally/
+2. **Export cookies**:
+   - Log into YouTube in your browser (make sure you're a member of the channel)
+   - Visit https://www.youtube.com
+   - Click the extension icon → Export
+   - Save as `cookies.txt` in the project root
+3. **The script will automatically use `cookies.txt` if it exists**
+
+#### **Option 2: Browser Cookie Auto-Detection**
+- The script will try to extract cookies from your browsers automatically
+- Make sure browsers are closed to avoid database locks
+- Supported browsers: Chrome, Firefox, Edge (in order of preference)
+
+**Note**: `cookies.txt` is automatically ignored by git to protect your authentication data.
 
 ### **Dependencies**
 ```bash

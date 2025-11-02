@@ -30,6 +30,10 @@ credentials.json
 service-account.json
 firebase-adminsdk-*.json
 
+# Cookie files (contains authentication data)
+cookies.txt
+*.cookies.txt
+
 # IDE files
 .vscode/
 .idea/
