@@ -56,6 +56,13 @@ Thumbs.db
 # Conda environment
 .conda/
 
+# Virtual environments
+nasdaq_trader_local/
+venv/
+env/
+ENV/
+virtualenv/
+
 # Project generation prompt (should not be public)
 project_generation_prompt.txt
 

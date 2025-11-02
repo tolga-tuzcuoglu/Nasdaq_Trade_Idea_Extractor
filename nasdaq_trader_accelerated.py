@@ -466,6 +466,13 @@ class AcceleratedNasdaqTrader:
             from datetime import datetime
             date_str = datetime.now().strftime('%Y%m%d')
             
+            # Get YouTube authentication settings from config
+            auth_config = self.config.get('YOUTUBE_AUTHENTICATION', {})
+            enable_browser_cookies = auth_config.get('ENABLE_BROWSER_COOKIES', False)
+            preferred_browsers = auth_config.get('PREFERRED_BROWSERS', ['chrome', 'firefox', 'edge', 'safari'])
+            max_retries_per_browser = auth_config.get('MAX_RETRIES_PER_BROWSER', 3)
+            fallback_to_no_auth = auth_config.get('FALLBACK_TO_NO_AUTH', True)
+            
             # Configure yt-dlp for audio-only download
             ydl_opts = {
                 'format': 'bestaudio[ext=m4a]/bestaudio/best',
@@ -480,37 +487,70 @@ class AcceleratedNasdaqTrader:
                 }]
             }
             
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                downloaded_video_id = info.get('id', 'unknown')
-                video_title = info.get('title', '')
-                channel_name = info.get('uploader', '')
-                
-                # If title is empty or None, try alternative fields
-                if not video_title:
-                    video_title = info.get('fulltitle', '') or info.get('alt_title', '')
-                
-                # If channel is empty or None, try alternative fields
-                if not channel_name:
-                    channel_name = info.get('uploader_id', '') or info.get('channel', '')
-                
-                # Final fallback
-                if not video_title:
-                    video_title = 'Unknown Title'
-                if not channel_name:
-                    channel_name = 'Unknown Channel'
-                
-                # Log the extracted metadata for debugging
-                self.logger.info(f"Extracted metadata - Title: '{video_title}', Channel: '{channel_name}'")
-                
-                # Find the downloaded file
-                for ext in ['m4a', 'wav', 'mp3', 'webm']:
-                    audio_path = f'video_cache/{downloaded_video_id}_{date_str}.{ext}'
-                    if os.path.exists(audio_path):
-                        self.logger.info(f"Downloaded and cached: {audio_path}")
-                        return audio_path, video_title, channel_name
-                
-                raise Exception("Audio file not found after download")
+            # Add browser cookie authentication if enabled
+            info = None
+            if enable_browser_cookies:
+                # Try each browser in order until one works
+                last_error = None
+                for browser in preferred_browsers:
+                    try:
+                        self.logger.info(f"Attempting authentication with {browser} browser cookies")
+                        ydl_opts_with_auth = ydl_opts.copy()
+                        ydl_opts_with_auth['cookiesfrombrowser'] = (browser,)
+                        
+                        with YoutubeDL(ydl_opts_with_auth) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                            self.logger.info(f"Successfully authenticated using {browser} browser cookies")
+                            break  # Success, exit the browser loop
+                    except Exception as e:
+                        last_error = e
+                        self.logger.warning(f"Authentication failed with {browser}: {str(e)[:100]}")
+                        continue  # Try next browser
+                else:
+                    # All browsers failed
+                    if fallback_to_no_auth:
+                        self.logger.warning("All browser authentication attempts failed, trying without authentication")
+                        # Fallback to no authentication
+                        with YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                    else:
+                        # Re-raise the last error if fallback is disabled
+                        raise last_error if last_error else Exception("All browser authentication attempts failed")
+            else:
+                # No authentication configured, proceed normally
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+            
+            # Extract metadata (common for all authentication methods)
+            downloaded_video_id = info.get('id', 'unknown')
+            video_title = info.get('title', '')
+            channel_name = info.get('uploader', '')
+            
+            # If title is empty or None, try alternative fields
+            if not video_title:
+                video_title = info.get('fulltitle', '') or info.get('alt_title', '')
+            
+            # If channel is empty or None, try alternative fields
+            if not channel_name:
+                channel_name = info.get('uploader_id', '') or info.get('channel', '')
+            
+            # Final fallback
+            if not video_title:
+                video_title = 'Unknown Title'
+            if not channel_name:
+                channel_name = 'Unknown Channel'
+            
+            # Log the extracted metadata for debugging
+            self.logger.info(f"Extracted metadata - Title: '{video_title}', Channel: '{channel_name}'")
+            
+            # Find the downloaded file
+            for ext in ['m4a', 'wav', 'mp3', 'webm']:
+                audio_path = f'video_cache/{downloaded_video_id}_{date_str}.{ext}'
+                if os.path.exists(audio_path):
+                    self.logger.info(f"Downloaded and cached: {audio_path}")
+                    return audio_path, video_title, channel_name
+            
+            raise Exception("Audio file not found after download")
                 
         except Exception as e:
             self.logger.error(f"Download failed for {url}: {e}")
