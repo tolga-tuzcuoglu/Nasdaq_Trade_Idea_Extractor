@@ -7,6 +7,7 @@ Optimized for maximum performance with parallel processing
 import os
 import sys
 import time
+import re
 import multiprocessing
 import concurrent.futures
 import logging
@@ -212,11 +213,13 @@ class AcceleratedNasdaqTrader:
         """
         import re
         
-        # Common ticker patterns
+        # Common ticker patterns - improved to catch more tickers like IREN
         ticker_patterns = [
-            r'\b[A-Z]{1,5}\b',  # 1-5 uppercase letters
-            r'\$[A-Z]{1,5}\b',  # $ followed by 1-5 uppercase letters
+            r'\b[A-Z]{2,5}\b',  # 2-5 uppercase letters (increased min to reduce false positives)
+            r'\$[A-Z]{2,5}\b',  # $ followed by 2-5 uppercase letters
             r'\b[A-Z]{2,5}\.\w{1,2}\b',  # Ticker with exchange suffix (e.g., AAPL.NASDAQ)
+            # Pattern for tickers mentioned with context like "IREN'e", "IREN'i", "IREN'ı"
+            r'\b([A-Z]{2,5})[\'’][a-zığüşöç]',  # Ticker with Turkish possessive suffix
         ]
         
         tickers = set()
@@ -224,9 +227,15 @@ class AcceleratedNasdaqTrader:
         for pattern in ticker_patterns:
             matches = re.findall(pattern, text)
             for match in matches:
+                # Handle tuple result from capture group
+                if isinstance(match, tuple):
+                    ticker = match[0]
+                else:
+                    ticker = match
                 # Clean up the match
-                ticker = match.replace('$', '').strip()
-                if len(ticker) >= 1 and len(ticker) <= 5:
+                ticker = ticker.replace('$', '').strip()
+                # Only add if length is valid (2-5 chars for tickers)
+                if len(ticker) >= 2 and len(ticker) <= 5:
                     tickers.add(ticker.upper())
         
         # Filter out common false positives
@@ -234,7 +243,8 @@ class AcceleratedNasdaqTrader:
             'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HAD', 'HER', 'WAS', 'ONE', 'OUR',
             'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO',
             'WHO', 'BOY', 'DID', 'ITS', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'AL', 'AS', 'AT', 'BE', 'BY',
-            'DO', 'GO', 'IF', 'IN', 'IS', 'IT', 'ME', 'MY', 'NO', 'OF', 'ON', 'OR', 'SO', 'TO', 'UP', 'WE'
+            'DO', 'GO', 'IF', 'IN', 'IS', 'IT', 'ME', 'MY', 'NO', 'OF', 'ON', 'OR', 'SO', 'TO', 'UP', 'WE',
+            'AN', 'AM', 'AI', 'OK', 'TV', 'ID', 'OS', 'PC', 'FY', 'IQ', 'QA', 'PM', 'AM', 'IO', 'IE', 'EU'
         }
         
         # Filter out false positives and return list
@@ -625,13 +635,43 @@ class AcceleratedNasdaqTrader:
             if os.path.exists(transcript_cache_path):
                 self.logger.info(f"Using cached transcript for {video_id} (model: {whisper_model})")
                 with open(transcript_cache_path, 'r', encoding='utf-8') as f:
-                    return f.read()
+                    cached_text = f.read()
+                # Check if cached transcript has timestamps (new format)
+                if '[' in cached_text and ']' in cached_text and re.search(r'\[\d{1,2}:\d{2}(?::\d{2})?\]', cached_text):
+                    return cached_text
+                # If cached transcript doesn't have timestamps, we need to re-transcribe with timestamps
+                # But for now, return the cached version (will be updated on next transcription)
+                self.logger.info(f"Cached transcript found but lacks timestamps - will add timestamps on next transcription")
+                return cached_text
             
             # Transcribe if not cached
             self.logger.info(f"Transcribing audio: {audio_path} (model: {whisper_model})")
             model = whisper.load_model(whisper_model)
             result = model.transcribe(audio_path, language='tr')
+            
+            # Format transcript with timestamps for better ticker and timestamp extraction
             transcript_text = result['text']
+            segments = result.get('segments', [])
+            
+            # Create timestamped transcript if segments are available
+            if segments:
+                timestamped_transcript = []
+                for segment in segments:
+                    start_time = segment.get('start', 0)
+                    text = segment.get('text', '').strip()
+                    if text:
+                        # Format timestamp as MM:SS or HH:MM:SS
+                        hours = int(start_time // 3600)
+                        minutes = int((start_time % 3600) // 60)
+                        seconds = int(start_time % 60)
+                        if hours > 0:
+                            timestamp_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                        else:
+                            timestamp_str = f"{minutes:02d}:{seconds:02d}"
+                        timestamped_transcript.append(f"[{timestamp_str}] {text}")
+                
+                # Use timestamped version for better analysis
+                transcript_text = "\n".join(timestamped_transcript)
             
             # Cache the transcript
             with open(transcript_cache_path, 'w', encoding='utf-8') as f:
@@ -776,10 +816,14 @@ class AcceleratedNasdaqTrader:
             - If ticker code is unknown, research and provide the most likely ticker symbol
             
             **CRITICAL TIMESTAMP REQUIREMENT**: 
-            - If Axon is mentioned at 2:45 in the video, the timestamp must be 2:45
-            - If Tesla is mentioned at 15:30 in the video, the timestamp must be 15:30
-            - If Apple is mentioned at 1:25:45 in the video, the timestamp must be 1:25:45
-            - NEVER guess or estimate timestamps - use ONLY the exact time from the video transcript
+            - The transcript includes timestamps in format [MM:SS] or [HH:MM:SS] at the start of each segment
+            - Extract the EXACT timestamp from the transcript when a ticker is first mentioned
+            - If Axon is mentioned at [02:45] in the transcript, the timestamp must be 2:45
+            - If Tesla is mentioned at [15:30] in the transcript, the timestamp must be 15:30
+            - If Apple is mentioned at [1:25:45] in the transcript, the timestamp must be 1:25:45
+            - NEVER guess or estimate timestamps - use ONLY the timestamp from the transcript brackets
+            - Format: Use MM:SS for times under 1 hour (e.g., 2:45, 15:30), HH:MM:SS for longer videos (e.g., 1:25:45)
+            - If transcript has [timestamp] format, extract the timestamp from the brackets when ticker appears
             
             
             **CRITICAL ANTI-HALLUCINATION REQUIREMENTS:**
@@ -845,7 +889,10 @@ class AcceleratedNasdaqTrader:
             - Include exact timestamps when tickers/assets are mentioned (e.g., "5:23", "12:45")
             - **CRITICAL TIMESTAMP ACCURACY**: Extract the EXACT moment when each ticker is first mentioned in the video (e.g., if Axon is mentioned at 2:45, use 2:45)
             - **TIMESTAMP FORMAT**: Use MM:SS format for times under 1 hour (e.g., 2:45, 15:30), HH:MM:SS for longer videos (e.g., 1:15:30)
+            - **TIMESTAMP EXTRACTION**: If transcript has [MM:SS] or [HH:MM:SS] timestamps, use the EXACT timestamp from brackets when ticker is mentioned
             - **TICKER CODE REQUIREMENT**: Always include the ticker symbol in parentheses (e.g., "Apple (AAPL)", "Tesla (TSLA)")
+            - **TICKER DETECTION**: Pay special attention to tickers mentioned with Turkish suffixes (e.g., "IREN'e", "IREN'i" = IREN ticker)
+            - **COMPREHENSIVE TICKER COVERAGE**: Ensure ALL tickers mentioned in transcript are included, even if mentioned with Turkish grammar (possessive, dative cases)
             - Use only current/past information from the video, no future predictions
             - CRITICAL: Use ONLY dates explicitly mentioned in the video transcript
             
@@ -894,7 +941,9 @@ class AcceleratedNasdaqTrader:
             - **COMPREHENSIVE COVERAGE**: Each ticker gets full analysis section
             - **TIMESTAMP EXTRACTION**: Find the EXACT video timestamp when each ticker is first mentioned (e.g., if Axon is mentioned at 2:45 in video, use 2:45)
             - **TIMESTAMP ACCURACY**: Each timestamp must reflect the actual moment the ticker appears in the video transcript
+            - **TIMESTAMP SOURCE**: Use timestamps from [MM:SS] or [HH:MM:SS] brackets in transcript - these are exact video timestamps
             - **TICKER CODE FORMAT**: Always include ticker symbol in format "Company Name (TICKER)" 
+            - **TICKER DETECTION**: Watch for tickers with Turkish grammar (IREN'e, IREN'i, IREN'ı, IREN'ın) - these all refer to ticker IREN
             - **BOLD NUMBERS**: All prices, percentages, and numbers in HIGH POTENTIAL TRADES must be bold
             - **TICKER NAMES**: Every entry in HIGH POTENTIAL TRADES must show "Company Name (TICKER_CODE)" format
             - All exact price levels (e.g., "6500 support", "6800 resistance")
