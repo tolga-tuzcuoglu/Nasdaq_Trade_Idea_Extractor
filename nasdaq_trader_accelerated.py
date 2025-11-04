@@ -218,14 +218,15 @@ class AcceleratedNasdaqTrader:
             r'\b[A-Z]{2,5}\b',  # 2-5 uppercase letters (increased min to reduce false positives)
             r'\$[A-Z]{2,5}\b',  # $ followed by 2-5 uppercase letters
             r'\b[A-Z]{2,5}\.\w{1,2}\b',  # Ticker with exchange suffix (e.g., AAPL.NASDAQ)
-            # Pattern for tickers mentioned with context like "IREN'e", "IREN'i", "IREN'ı"
-            r'\b([A-Z]{2,5})[\'’][a-zığüşöç]',  # Ticker with Turkish possessive suffix
+            # Pattern for tickers mentioned with Turkish possessive suffix
+            # Handles: "IREN'e", "IREN'i", "Iren'in", "İren'in" (case-insensitive for first letter)
+            r'\b([A-Z][A-Za-z]{1,4})[\'’][a-zığüşöç]',  # Ticker with Turkish possessive suffix (handles "Iren'in" -> IREN)
         ]
         
         tickers = set()
         
         for pattern in ticker_patterns:
-            matches = re.findall(pattern, text)
+            matches = re.findall(pattern, text)  # Search in original text (case-sensitive for pattern)
             for match in matches:
                 # Handle tuple result from capture group
                 if isinstance(match, tuple):
@@ -234,9 +235,11 @@ class AcceleratedNasdaqTrader:
                     ticker = match
                 # Clean up the match
                 ticker = ticker.replace('$', '').strip()
+                # Convert to uppercase for consistency (handles "Iren" -> "IREN")
+                ticker = ticker.upper()
                 # Only add if length is valid (2-5 chars for tickers)
                 if len(ticker) >= 2 and len(ticker) <= 5:
-                    tickers.add(ticker.upper())
+                    tickers.add(ticker)
         
         # Filter out common false positives
         false_positives = {
@@ -694,6 +697,33 @@ class AcceleratedNasdaqTrader:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(self.config.get('MODELS', {}).get('gemini_model', 'gemini-2.5-flash'))
             
+            # CRITICAL: Extract and validate tickers from transcript BEFORE generating analysis
+            # This prevents hallucination by providing validated company names
+            self.logger.info("Extracting and validating tickers from transcript...")
+            extracted_tickers = self.extract_tickers_from_text(transcript)
+            self.logger.info(f"Found {len(extracted_tickers)} potential tickers in transcript: {extracted_tickers}")
+            
+            # Validate all extracted tickers and build validated ticker mapping
+            validated_ticker_map = {}
+            if extracted_tickers:
+                validation_results = self.ticker_validator.validate_multiple_tickers(extracted_tickers)
+                for ticker, result in validation_results.items():
+                    if result.get('is_valid'):
+                        company_name = result.get('company_name', ticker)
+                        validated_ticker_map[ticker] = company_name
+                        self.logger.info(f"Validated: {ticker} -> {company_name}")
+                    else:
+                        self.logger.warning(f"Invalid ticker found in transcript: {ticker}")
+            
+            # Build validated ticker reference string for prompt
+            validated_ticker_reference = ""
+            if validated_ticker_map:
+                validated_ticker_reference = "\n\n**VALIDATED TICKER REFERENCE (MUST USE EXACTLY):**\n"
+                validated_ticker_reference += "The following tickers have been validated with Yahoo Finance. You MUST use these exact company names:\n"
+                for ticker, company_name in sorted(validated_ticker_map.items()):
+                    validated_ticker_reference += f"- {ticker} = {company_name}\n"
+                validated_ticker_reference += "\n**CRITICAL**: When mentioning any ticker in the report, you MUST use the exact company name from this list above. NEVER invent or guess company names.\n"
+            
             # Generate content-based title if metadata extraction failed
             if video_title == "Unknown Title" or channel_name == "Unknown Channel":
                 self.logger.info("Metadata extraction failed, generating content-based title...")
@@ -741,6 +771,8 @@ class AcceleratedNasdaqTrader:
             VIDEO INFORMATION:
             - Title: {video_title}
             - Channel: {channel_name}
+            
+            {validated_ticker_reference}
             
             TRANSCRIPT:
             {transcript}
@@ -971,11 +1003,17 @@ class AcceleratedNasdaqTrader:
             - Content can be in Turkish (analysis, reasoning, descriptions)
             - Keep Turkish content for analysis but English template structure
             
-            **TICKER IDENTIFICATION REQUIREMENT**:
-            - NEVER use "Belirtilmemiş" or "Not Specified" for ticker codes
-            - ALWAYS provide actual ticker symbols (e.g., AAPL, TSLA, MSFT)
-            - If company name is mentioned but ticker is unclear, make educated guess based on context
-            - Format: **Company Name (TICKER)** - never leave ticker blank
+            **CRITICAL TICKER NAME REQUIREMENT - NO HALLUCINATION**:
+            - NEVER invent or guess company names - ONLY use validated names from the VALIDATED TICKER REFERENCE above
+            - If a ticker appears in the VALIDATED TICKER REFERENCE, you MUST use the exact company name from that list
+            - NEVER create fictional company names like "I-ON Digital Corp" or any other invented names
+            - If a ticker is mentioned in transcript but NOT in the VALIDATED TICKER REFERENCE, use the ticker symbol only: "Unknown Company (TICKER)"
+            - If company name is mentioned in transcript but ticker is unclear, use the ticker symbol only: "Unknown Company (TICKER)"
+            - Format: **Company Name (TICKER)** - use validated company name from reference list
+            - NEVER use "Belirtilmemiş" or "Not Specified" - if ticker exists in reference, use that exact name
+            - STRICT RULE: When you see ticker "IREN" in transcript, you MUST use the company name from VALIDATED TICKER REFERENCE (e.g., "IREN Limited" or "Iris Energy Ltd.")
+            - STRICT RULE: When you see any ticker symbol, FIRST check the VALIDATED TICKER REFERENCE - if it exists there, use that exact company name
+            - STRICT RULE: If ticker is not in VALIDATED TICKER REFERENCE, use format: "Unknown Company (TICKER)" - NEVER invent a company name
             """
             
             # Generate content with rate limiting and retry logic
@@ -998,6 +1036,40 @@ class AcceleratedNasdaqTrader:
                             raise Exception(f"Gemini API rate limit exceeded after {max_retries} attempts: {e}")
                     else:
                         raise e
+            
+            # CRITICAL POST-PROCESSING: Replace any hallucinated company names with validated ones
+            # This provides a safety net in case Gemini still makes mistakes
+            if validated_ticker_map:
+                self.logger.info("Post-processing: Replacing any incorrect company names with validated ones...")
+                for ticker, validated_company_name in validated_ticker_map.items():
+                    # Pattern 1: Match "Unknown Company (TICKER)" - MUST be replaced first
+                    pattern1 = rf'Unknown Company\s*\({re.escape(ticker)}\)'
+                    replacement1 = f'{validated_company_name} ({ticker})'
+                    if re.search(pattern1, analysis_text, re.IGNORECASE):
+                        self.logger.info(f"Replacing 'Unknown Company ({ticker})' with '{validated_company_name} ({ticker})'")
+                        analysis_text = re.sub(pattern1, replacement1, analysis_text, flags=re.IGNORECASE)
+                    
+                    # Pattern 2: Match "Company Name (TICKER)" in section headers (###)
+                    pattern2 = rf'###\s+([^*\n(]+?)\s*\({re.escape(ticker)}\)'
+                    def replace_section_header(match):
+                        matched_name = match.group(1).strip()
+                        if matched_name.lower() != validated_company_name.lower():
+                            self.logger.info(f"Replacing section header '{matched_name} ({ticker})' with '{validated_company_name} ({ticker})'")
+                            return f'### {validated_company_name} ({ticker})'
+                        return match.group(0)
+                    analysis_text = re.sub(pattern2, replace_section_header, analysis_text, flags=re.IGNORECASE | re.MULTILINE)
+                    
+                    # Pattern 3: Match "Company Name (TICKER)" in bold (**)
+                    pattern3 = rf'\*\*([^*\n(]+?)\s*\({re.escape(ticker)}\)'
+                    def replace_bold(match):
+                        matched_name = match.group(1).strip()
+                        if matched_name.lower() != validated_company_name.lower() and len(matched_name) < 100:
+                            # Check if it's a reasonable company name (not a full sentence)
+                            if not any(word in matched_name.lower() for word in ['timestamp', 'sentiment', 'resistance', 'support', 'target', 'notes', 'reason:', 'entry:', 'stop:', 'timing:', 'current:', 'take profit:', 'risk:', 'risk/reward:']):
+                                self.logger.info(f"Replacing bold '{matched_name} ({ticker})' with '{validated_company_name} ({ticker})'")
+                                return f'**{validated_company_name} ({ticker})'
+                        return match.group(0)
+                    analysis_text = re.sub(pattern3, replace_bold, analysis_text, flags=re.IGNORECASE | re.MULTILINE)
             
             # Validate tickers in the generated analysis (for internal use only)
             validation_results = self.validate_tickers_in_analysis(analysis_text)
