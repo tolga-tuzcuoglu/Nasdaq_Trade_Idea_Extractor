@@ -250,8 +250,39 @@ class AcceleratedNasdaqTrader:
             'AN', 'AM', 'AI', 'OK', 'TV', 'ID', 'OS', 'PC', 'FY', 'IQ', 'QA', 'PM', 'AM', 'IO', 'IE', 'EU'
         }
         
-        # Filter out false positives and return list
-        filtered_tickers = [ticker for ticker in tickers if ticker not in false_positives]
+        # Filter out index names that are often mistaken for tickers
+        # Check if "SMP" appears in context of "SMP 500" or "S&P 500" - it's an index, not a ticker
+        index_patterns = {
+            'SMP': r'(?i)(?:SMP\s*500|S&P\s*500)',  # S&P 500 index
+            'NDX': r'(?i)(?:NASDAQ|NDX)',  # NASDAQ index
+            'SPX': r'(?i)(?:S&P|SPX)',  # S&P 500 index
+            'RUT': r'(?i)(?:RUSSELL|RUT)',  # Russell 2000 index
+            'VIX': r'(?i)(?:VIX|VOLATILITY)',  # VIX volatility index
+        }
+        
+        # Remove index names that appear in index context
+        filtered_tickers = []
+        for ticker in tickers:
+            if ticker in false_positives:
+                continue
+            
+            # Check if this ticker is actually an index mentioned in context
+            is_index = False
+            if ticker in index_patterns:
+                pattern = index_patterns[ticker]
+                if re.search(pattern, text):
+                    self.logger.info(f"Filtering out '{ticker}' - detected as index (pattern: {pattern})")
+                    is_index = True
+            
+            # Special case: SMP is often S&P 500, not the ticker
+            if ticker == 'SMP':
+                # Check if it appears near "500" or "S&P"
+                if re.search(r'(?i)SMP\s*500|S&P\s*500', text):
+                    self.logger.info(f"Filtering out 'SMP' - detected as S&P 500 index")
+                    is_index = True
+            
+            if not is_index:
+                filtered_tickers.append(ticker)
         
         return filtered_tickers
     
@@ -724,6 +755,20 @@ class AcceleratedNasdaqTrader:
                     validated_ticker_reference += f"- {ticker} = {company_name}\n"
                 validated_ticker_reference += "\n**CRITICAL**: When mentioning any ticker in the report, you MUST use the exact company name from this list above. NEVER invent or guess company names.\n"
             
+            # Add index reference to prevent false positives
+            index_reference = """
+**IMPORTANT INDEX NAMES (NOT TICKERS):**
+The following are market indices, NOT individual stock tickers. When mentioned in transcript, use these exact names:
+- "SMP 500" or "S&P 500" = S&P 500 Index (SPX) - NOT "Standard Motor Products, Inc."
+- "NASDAQ" or "NDX" = NASDAQ 100 Index (NDX)
+- "RUSSELL" or "RUT" = Russell 2000 Index (RUT)
+- "VIX" = CBOE Volatility Index (VIX)
+- "SPX" = S&P 500 Index (SPX)
+
+**CRITICAL**: If transcript mentions "SMP 500", "S&P 500", or similar, it refers to the S&P 500 INDEX, NOT any individual stock ticker. Always use the full index name like "S&P 500 Index (SPX)" in the report.
+"""
+            validated_ticker_reference += index_reference
+            
             # Generate content-based title if metadata extraction failed
             if video_title == "Unknown Title" or channel_name == "Unknown Channel":
                 self.logger.info("Metadata extraction failed, generating content-based title...")
@@ -807,7 +852,17 @@ class AcceleratedNasdaqTrader:
             ## 📈 TRADING OPPORTUNITIES
             [CREATE SECTIONS FOR ALL TICKERS MENTIONED IN TRANSCRIPT - NO TICKER CAN BE SKIPPED]
             
+            **CRITICAL INDEX VS TICKER DISTINCTION:**
+            - If transcript mentions "SMP 500", "S&P 500", or "S&P" - this is the S&P 500 INDEX, NOT "Standard Motor Products, Inc."
+            - Use format: "S&P 500 Index (SPX)" for indices
+            - If transcript mentions "NASDAQ" or "NDX" - this is NASDAQ 100 Index (NDX), not a stock ticker
+            - If transcript mentions "RUSSELL" or "RUT" - this is Russell 2000 Index (RUT), not a stock ticker
+            - If transcript mentions "VIX" - this is CBOE Volatility Index (VIX), not a stock ticker
+            - NEVER confuse index names with stock ticker symbols
+            
             ### [TICKER] - [Company/Asset Name] ([TICKER_CODE])
+            OR
+            ### [Index Name] ([INDEX_CODE]) - [Market Indicator]
             - **Timestamp**: [EXACT time when ticker is first mentioned in video - example: 2:45, 5:23, 12:45, 1:30:15 - ONLY actual time from video]
             - **Sentiment**: [Bullish/Bearish/Neutral] - [Reasoning]
             - **Resistance**: [Resistance level if mentioned - leave blank if not]
@@ -1036,6 +1091,19 @@ class AcceleratedNasdaqTrader:
                             raise Exception(f"Gemini API rate limit exceeded after {max_retries} attempts: {e}")
                     else:
                         raise e
+            
+            # CRITICAL POST-PROCESSING: Fix index name false positives
+            # Replace "Standard Motor Products, Inc. (SMP)" with "S&P 500 Index (SPX)" when context suggests it's the index
+            index_fixes = [
+                (r'Standard Motor Products, Inc\.\s*\(SMP\)', 'S&P 500 Index (SPX)'),
+                (r'Standard Motor Products\s*\(SMP\)', 'S&P 500 Index (SPX)'),
+                (r'Unknown Company\s*\(SMP\s*500\)', 'S&P 500 Index (SPX)'),
+                (r'Unknown Company\s*\(S&P\s*500\)', 'S&P 500 Index (SPX)'),
+            ]
+            for pattern, replacement in index_fixes:
+                if re.search(pattern, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Fixing index false positive: replacing pattern '{pattern}' with '{replacement}'")
+                    analysis_text = re.sub(pattern, replacement, analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Replace any hallucinated company names with validated ones
             # This provides a safety net in case Gemini still makes mistakes
