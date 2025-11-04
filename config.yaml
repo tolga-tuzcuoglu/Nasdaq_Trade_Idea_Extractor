@@ -36,3 +36,11 @@ DIRECTORIES:
   CACHE_DIR: "video_cache"
   SUMMARY_DIR: "summary"
   LOGS_DIR: "logs" # Separate directory for detailed logs
+
+TICKER_CORRECTIONS:
+  # Common mispronunciations/misspellings in Turkish videos
+  # Format: incorrect_ticker: correct_ticker
+  IREN: IRON      # Iron Mountain Inc.
+  ALAB: ASTR      # Astra Space Inc.
+  DIELO: DLO      # DLocal Limited
+  COREWAVE: CRWV  # CoreWave Inc.
