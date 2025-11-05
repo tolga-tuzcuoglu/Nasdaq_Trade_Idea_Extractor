@@ -28,7 +28,6 @@ import yfinance as yf
 from dotenv import load_dotenv
 import warnings
 from ticker_validator import get_ticker_validator, validate_ticker, validate_tickers
-from report_generator import ReportGenerator
 
 # Load environment variables
 load_dotenv()
@@ -858,39 +857,299 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     self.logger.warning(f"Failed to generate content-based title: {e}")
                     # Keep the original fallback values
             
-            # IMPROVED APPROACH: Use two-step structured extraction
-            # Step 1: Extract structured data (JSON)
-            # Step 2: Format into final report
-            self.logger.info("Using improved two-step report generation approach...")
+            # Use proven prompt-based approach with enhanced anti-hallucination safeguards
+            # This approach generates comprehensive, well-formatted reports directly
+            self.logger.info("Using enhanced prompt-based report generation...")
             
-            # Initialize report generator
-            report_gen = ReportGenerator(self.config)
-            report_gen.set_extracted_tickers(
-                all_extracted_tickers_list, 
-                validated_ticker_map, 
-                self.ticker_corrections
-            )
+            # Create professional trading analysis prompt
+            prompt = f"""
+            As an experienced Nasdaq portfolio manager, analyze this trading video transcript and create a professional trading report in English.
             
-            # Step 1: Extract structured data
-            try:
-                self.logger.info("Step 1: Extracting structured data from transcript...")
-                structured_data = report_gen.extract_structured_data(transcript, video_title, channel_name, model)
-                self.logger.info(f"Extracted {len(structured_data.get('tickers', []))} tickers in structured format")
-                
-                # VALIDATION: Verify all extracted tickers are included (already handled in ReportGenerator)
-                # This ensures NO ticker is ever skipped
-                extracted_ticker_set = set(all_extracted_tickers_list)
-                extracted_in_data = set(t.get('ticker', '') for t in structured_data.get('tickers', []))
-                if extracted_ticker_set != extracted_in_data:
-                    self.logger.info(f"All tickers validated: {len(extracted_in_data)} tickers in structured data")
-                
-                # Step 2: Format structured data into report
-                self.logger.info("Step 2: Formatting structured data into report...")
-                analysis_text = report_gen.format_report(structured_data)
-                
-            except Exception as e:
-                self.logger.error(f"Two-step approach failed: {e}")
-                raise Exception(f"Report generation failed: {e}")
+            **CRITICAL TEMPLATE REQUIREMENT**: 
+            - Use standard English section headers: "REPORT INFORMATION", "SHORT SUMMARY", "TRADING OPPORTUNITIES", "HIGH POTENTIAL TRADES"
+            - Keep template structure in English (headers, labels, format)
+            - Content can be in Turkish (analysis, reasoning, descriptions, notes)
+            - Use English field labels: "Timestamp:", "Sentiment:", "Resistance:", "Support:", "Target:", "Notes:"
+            - Use English section headers but Turkish content for analysis
+            
+            VIDEO INFORMATION:
+            - Title: {video_title}
+            - Channel: {channel_name}
+            
+            {validated_ticker_reference}
+            
+            TRANSCRIPT:
+            {transcript}
+            
+            Create a comprehensive trading analysis report in this EXACT format:
+            
+            **IMPORTANT LANGUAGE REQUIREMENTS:**
+            - Generate ALL content in Turkish for Turkish day/swing traders
+            - Use Turkish trading terminology and expressions
+            - Keep the report concise and action-oriented
+            - Focus on practical trading information
+            
+            **CONCISE REPORT REQUIREMENTS:**
+            - Generate SHORT, ACTIONABLE reports (maximum 2-3 pages)
+            - Focus on HIGH-IMPACT trading opportunities only
+            - Eliminate redundant information and verbose explanations
+            - Use bullet points and clear formatting
+            - Prioritize immediate executable actions over analysis
+            - Keep each section focused and concise
+            - Use direct, actionable language
+            - Focus on specific price levels and trading signals
+            
+            ## 📊 REPORT INFORMATION
+            - **Source**: {video_title} - {channel_name}
+            - **Video Date**: [Date mentioned in video - ONLY use dates mentioned in video, add year if not specified]
+            
+            **ÖNEMLİ TARİH KURALI**: Eğer video sadece "16 Eylül" diyorsa, "16 Eylül" yazın. "16 Eylül 2024" YAZMAYIN çünkü yıl belirtilmemiş.
+            
+            ## 📝 SHORT SUMMARY
+            [Brief summary of video content - 2-3 sentences covering main message and trading opportunities]
+            
+            ## 📈 TRADING OPPORTUNITIES
+            [CREATE SECTIONS FOR ALL TICKERS MENTIONED IN TRANSCRIPT - NO TICKER CAN BE SKIPPED]
+            
+            **CRITICAL INDEX VS TICKER DISTINCTION:**
+            - If transcript mentions "SMP 500", "S&P 500", or "S&P" - this is the S&P 500 INDEX, NOT "Standard Motor Products, Inc."
+            - Use format: "S&P 500 Index (SPX)" for indices
+            - If transcript mentions "NASDAQ" or "NDX" - this is NASDAQ 100 Index (NDX), not a stock ticker
+            - If transcript mentions "RUSSELL" or "RUT" - this is Russell 2000 Index (RUT), not a stock ticker
+            - If transcript mentions "VIX" - this is CBOE Volatility Index (VIX), not a stock ticker
+            - NEVER confuse index names with stock ticker symbols
+            
+            ### [TICKER] - [Company/Asset Name] ([TICKER_CODE])
+            OR
+            ### [Index Name] ([INDEX_CODE]) - [Market Indicator]
+            - **Timestamp**: [EXACT time when ticker is first mentioned in video - example: 2:45, 5:23, 12:45, 1:30:15 - ONLY actual time from video]
+            - **Sentiment**: [Bullish/Bearish/Neutral] - [Reasoning]
+            - **Resistance**: [Resistance level if mentioned - leave blank if not]
+            - **Support**: [Support level if mentioned - leave blank if not]
+            - **Target**: [Target price if mentioned - leave blank if not]
+            - **Notes**: [Important notes, technical analysis, risk factors, trading strategy]
+            
+            [REPEAT THIS SECTION FOR EVERY TICKER/ASSET MENTIONED IN TRANSCRIPT - NO TICKER CAN BE SKIPPED]
+            
+            ## 🎯 HIGH POTENTIAL TRADES
+            [All high profit potential tickers and positions requiring risk management - no limit on number]
+            
+            **MANDATORY TEMPLATE REQUIREMENT FOR HIGH POTENTIAL TRADES**:
+            - Section header MUST be "HIGH POTENTIAL TRADES" (never "YÜKSEK POTANSİYELLİ İŞLEMLER")
+            - Use English field labels: "Entry:", "Stop:", "Target:", "Risk:", "Risk/Reward:"
+            - Content can be in Turkish (reasoning, descriptions, explanations)
+            - Use "Reason:" as label but Turkish content for reasoning
+            
+            **1.** **[COMPANY_NAME] ([TICKER_CODE])**: [BUY/SELL/HOLD] - [Entry: **$X.XX**] [Stop: **$X.XX**] [Target: **$X.XX**] [Risk: **X%**] [Risk/Reward: **1:X**]
+               *[Reason: En yüksek kar potansiyeli - acil fırsat]*
+            
+            **2.** **[COMPANY_NAME] ([TICKER_CODE])**: [BUY/SELL/HOLD] - [Entry: **$X.XX**] [Stop: **$X.XX**] [Target: **$X.XX**] [Risk: **X%**] [Risk/Reward: **1:X**]
+               *[Reason: Yüksek kar potansiyeli - teknik kırılım]*
+            
+            **3.** **[COMPANY_NAME] ([TICKER_CODE])**: [TAKE PROFIT/EXIT] - [Current: **$X.XX**] [Take Profit: **$X.XX**] [Stop: **$X.XX**] [Timing: Immediate]
+               *[Reason: Risk yönetimi - zarar kaçınma önceliği]*
+            
+            [CONTINUE FOR ALL HIGH POTENTIAL TICKERS - NO LIMIT ON NUMBER]
+            
+            **CRITICAL FORMAT REQUIREMENT**: In HIGH POTENTIAL TRADES section, ALWAYS use format: **Company Name (TICKER_CODE)** - NEVER use just ticker codes without company names
+            
+            **MANDATORY TICKER REQUIREMENT**: 
+            - EVERY entry in HIGH POTENTIAL TRADES MUST include both company name AND ticker code
+            - Format: **1.** **Apple (AAPL)**: BUY - [Entry: **$150.00**] [Stop: **$140.00**] [Target: **$180.00**]
+            - Format: **2.** **Tesla (TSLA)**: SELL - [Entry: **$200.00**] [Stop: **$220.00**] [Target: **$180.00**]
+            - NEVER write just "1. BUY" or "1. Apple" - ALWAYS include ticker code in parentheses
+            - NEVER use "Belirtilmemiş" or "Not Specified" - ALWAYS find the actual ticker code
+            - If ticker code is unknown, research and provide the most likely ticker symbol
+            
+            **CRITICAL TIMESTAMP REQUIREMENT**: 
+            - The transcript includes timestamps in format [MM:SS] or [HH:MM:SS] at the start of each segment
+            - Extract the EXACT timestamp from the transcript when a ticker is first mentioned
+            - If Axon is mentioned at [02:45] in the transcript, the timestamp must be 2:45
+            - If Tesla is mentioned at [15:30] in the transcript, the timestamp must be 15:30
+            - If Apple is mentioned at [1:25:45] in the transcript, the timestamp must be 1:25:45
+            - NEVER guess or estimate timestamps - use ONLY the timestamp from the transcript brackets
+            - Format: Use MM:SS for times under 1 hour (e.g., 2:45, 15:30), HH:MM:SS for longer videos (e.g., 1:25:45)
+            - If transcript has [timestamp] format, extract the timestamp from the brackets when ticker appears
+            
+            
+            **CRITICAL ANTI-HALLUCINATION REQUIREMENTS:**
+            
+        🚫 **STRICT PROHIBITIONS:**
+        - NEVER add tickers, prices, or information not explicitly mentioned in the transcript
+        - NEVER use external knowledge or current market data
+        - NEVER assume or infer information not directly stated
+        - NEVER add technical analysis not explicitly described in the video
+        - NEVER include market news or events not mentioned in the transcript
+        - NEVER assume or guess years, dates, or timeframes not explicitly mentioned
+        - NEVER fill in missing date information (year, month, day) if not stated in transcript
+        - NEVER add current date or time unless explicitly mentioned in video
+        - NEVER assume video date or report date - use only what is explicitly stated
+        - NEVER be creative or make assumptions about any dates or times
+            
+            ✅ **MANDATORY REQUIREMENTS:**
+            1. ONLY include tickers and assets explicitly mentioned in the transcript
+            2. ONLY include prices that are explicitly stated in the video
+            3. ONLY include technical analysis that is explicitly described
+            4. ONLY include trading ideas that are explicitly mentioned
+            5. If information is not in the transcript, state "Not mentioned in video"
+            6. Use exact quotes from the transcript when possible
+            7. Clearly mark any assumptions or interpretations as "Based on transcript interpretation"
+            8. Validate all ticker symbols (use standard format like AAPL, MSFT, etc.)
+            9. If prices are mentioned, include them; if not, state "Price not specified in video"
+            10. Be specific about entry/exit points only if explicitly mentioned
+            11. Focus on actionable information that can be executed on NASDAQ
+            12. Maintain professional trading report format
+        13. **CRITICAL DATE HANDLING**: If only day/month is mentioned without year, write exactly as stated (e.g., "16 Eylül" not "16 Eylül 2024")
+        14. **DATE ACCURACY**: Never assume years - if year is not mentioned, leave it empty or state "Year not specified in video"
+        15. **EXACT TRANSCRIPT DATES**: Use only dates explicitly mentioned in the transcript, no assumptions
+        16. **NO DATE CREATIVITY**: Never add current date, report date, or any date not explicitly mentioned in video
+        17. **VIDEO DATE ONLY**: Use only the date explicitly mentioned in the video content, nothing else
+            
+            🎯 **CRITICAL TICKER ORGANIZATION REQUIREMENTS:**
+            16. Each ticker/asset must appear ONLY ONCE in the entire report
+            17. Create ONE comprehensive section per ticker with ALL information about that ticker
+            18. Include ONE timestamp per ticker (the first or most relevant mention)
+            19. Consolidate all information about each ticker into its dedicated section
+            20. Do NOT repeat the same ticker in multiple sections
+            21. Group all related information (prices, analysis, recommendations) under each ticker's section
+            22. If a ticker is mentioned multiple times in the video, combine all information into ONE section
+            23. Use the "Timestamp" field to show the most relevant timestamp for the ticker
+            
+            🔍 **SOURCE VERIFICATION:**
+            - Every piece of information must be traceable to the transcript
+            - Use phrases like "According to the video" or "The speaker mentioned"
+            - If uncertain, state "Unclear from transcript" rather than guessing
+            - Never fill in gaps with external knowledge
+            
+        📝 **REPORTING STANDARDS:**
+        - NEVER use predicted values, estimates, or future dates (e.g., "06 Haziran 2024, 15:30 (Tahmini)")
+        - NEVER write "Videoda belirtilmemiş" or any placeholder text
+        - NEVER generate fake dates or add current date/time
+        - NEVER add report date or any date not explicitly mentioned in video
+        - If no trading ideas are mentioned, leave the section completely blank
+        - If no tickers are mentioned, leave the section completely blank
+        - If no prices are mentioned, leave the price fields completely blank
+        - If information is not mentioned, leave the field completely empty
+        - Always prioritize accuracy over completeness
+        - Only include information that is explicitly mentioned in the video
+            - Include exact timestamps when tickers/assets are mentioned (e.g., "5:23", "12:45")
+            - **CRITICAL TIMESTAMP ACCURACY**: Extract the EXACT moment when each ticker is first mentioned in the video (e.g., if Axon is mentioned at 2:45, use 2:45)
+            - **TIMESTAMP FORMAT**: Use MM:SS format for times under 1 hour (e.g., 2:45, 15:30), HH:MM:SS for longer videos (e.g., 1:15:30)
+            - **TIMESTAMP EXTRACTION**: If transcript has [MM:SS] or [HH:MM:SS] timestamps, use the EXACT timestamp from brackets when ticker is mentioned
+            - **TICKER CODE REQUIREMENT**: Always include the ticker symbol in parentheses (e.g., "Apple (AAPL)", "Tesla (TSLA)")
+            - **TICKER DETECTION**: Pay special attention to tickers mentioned with Turkish suffixes (e.g., "IREN'e", "IREN'i" = IREN ticker)
+            - **COMPREHENSIVE TICKER COVERAGE**: Ensure ALL tickers mentioned in transcript are included, even if mentioned with Turkish grammar (possessive, dative cases)
+            - Use only current/past information from the video, no future predictions
+            - CRITICAL: Use ONLY dates explicitly mentioned in the video transcript
+            
+            🚫 **ELIMINATE REPETITIONS:**
+            - Each piece of information appears ONLY ONCE in the entire report
+            - Do NOT repeat the same ticker in multiple sections
+            - Do NOT repeat the same price information
+            - Do NOT repeat the same technical analysis
+            - Do NOT repeat the same risk assessment
+            - Consolidate all information about each ticker into ONE section only
+            
+            🎯 **CRYSTAL CLEAR TRADING ACTIONS:**
+            - Make trading decisions immediately obvious (BUY/SELL/HOLD)
+            - Provide specific entry prices, stop losses, and targets
+            - Use direct, actionable language
+            - Focus on immediate execution (0-24 hours priority)
+            - Eliminate ambiguity - be definitive in recommendations
+            
+            📊 **CONCISE REPORT GENERATION:**
+            - Generate MAXIMUM 2-3 page reports
+            - Start with SHORT SUMMARY (2-3 sentences)
+            - Include ALL tickers mentioned in transcript (no exceptions)
+            - End with HIGH POTENTIAL TRADES (ALL high-potential tickers, no limit)
+            - Use bullet points and clear formatting
+            - Eliminate verbose explanations
+            - Focus on specific price levels and trading signals
+            - Prioritize immediate executable actions
+            - Use direct, actionable language
+            - Keep each section focused and concise
+            - **MANDATORY**: Every ticker in transcript must be covered
+            
+            🔍 **REPORT STRUCTURE REQUIREMENTS:**
+            - **SHORT SUMMARY**: 2-3 sentences maximum
+            - **TRADING OPPORTUNITIES**: ALL tickers mentioned in transcript (no limit)
+            - **HIGH POTENTIAL TRADES**: ALL high-potential tickers (no limit) - MUST include company name and ticker code for each entry
+            - **Eliminate**: Redundant sections, verbose explanations, generic analysis
+            - **Focus on**: Specific price levels, trading signals, immediate actions
+            - **Format**: Bullet points, clear headers, concise language
+            - **Length**: Maximum 2-3 pages total
+            - **Priority**: Immediate actions first, analysis second
+            - **CRITICAL**: Include EVERY ticker mentioned in the transcript
+            
+            📋 **SPECIFIC INFORMATION TO CAPTURE:**
+            - **ALL TICKERS**: Every ticker mentioned in transcript must be covered
+            - **NO EXCEPTIONS**: No ticker can be skipped or omitted
+            - **COMPREHENSIVE COVERAGE**: Each ticker gets full analysis section
+            - **TIMESTAMP EXTRACTION**: Find the EXACT video timestamp when each ticker is first mentioned (e.g., if Axon is mentioned at 2:45 in video, use 2:45)
+            - **TIMESTAMP ACCURACY**: Each timestamp must reflect the actual moment the ticker appears in the video transcript
+            - **TIMESTAMP SOURCE**: Use timestamps from [MM:SS] or [HH:MM:SS] brackets in transcript - these are exact video timestamps
+            - **TICKER CODE FORMAT**: Always include ticker symbol in format "Company Name (TICKER)" 
+            - **TICKER DETECTION**: Watch for tickers with Turkish grammar (e.g., "TICKER'e", "TICKER'i", "TICKER'ı", "TICKER'ın") - these all refer to the ticker symbol
+            - **BOLD NUMBERS**: All prices, percentages, and numbers in HIGH POTENTIAL TRADES must be bold
+            - **TICKER NAMES**: Every entry in HIGH POTENTIAL TRADES must show "Company Name (TICKER_CODE)" format
+            - All exact price levels (e.g., "6500 support", "6800 resistance")
+            - All moving average levels (8-day, 21-day, 50-day, 100-day, 200-day)
+            - All gap levels (e.g., "Tesla 398 gap", "AMD 202-170 gap")
+            - All breakout levels (e.g., "192 resistance", "kırılım olmadan pozisyon alma")
+            - All volume signals (e.g., "sert hacim çubuğu", "hacimli düşüş")
+            - All trend signals (e.g., "yükseliş trendi bozuldu", "kırmızı kanal")
+            - All risk management rules (e.g., "mutlaka stop loss", "nakit oranı %30")
+            - All timing signals (e.g., "Trump tweeti", "Fed konuşması")
+            - All position management (e.g., "stopları yukarı çek", "pozisyon kapat")
+            - All market events (e.g., "CPI verileri", "bilanço sezonu")
+            
+            🚫 **CRITICAL REQUIREMENT**: 
+            - EVERY ticker mentioned in the transcript MUST be included in the report
+            - NO ticker can be skipped, omitted, or excluded
+            - Each ticker must have its own dedicated section
+            - If a ticker is mentioned multiple times, consolidate all information into one section
+            - **HIGH POTENTIAL TRADES SECTION MUST INCLUDE TICKER NAMES**: Every numbered entry must show "Company Name (TICKER_CODE)" format
+            
+            **FINAL TEMPLATE ENFORCEMENT**:
+            - Use English template structure (headers, labels, format)
+            - Use "HIGH POTENTIAL TRADES" as section header
+            - Use English field labels: "Timestamp:", "Sentiment:", "Resistance:", "Support:", "Target:", "Notes:"
+            - Content can be in Turkish (analysis, reasoning, descriptions)
+            - Keep Turkish content for analysis but English template structure
+            
+            **CRITICAL TICKER NAME REQUIREMENT - NO HALLUCINATION**:
+            - NEVER invent or guess company names - ONLY use validated names from the VALIDATED TICKER REFERENCE above
+            - If a ticker appears in the VALIDATED TICKER REFERENCE, you MUST use the exact company name from that list
+            - NEVER create fictional company names like "I-ON Digital Corp" or any other invented names
+            - If a ticker is mentioned in transcript but NOT in the VALIDATED TICKER REFERENCE, use the ticker symbol only: "Unknown Company (TICKER)"
+            - If company name is mentioned in transcript but ticker is unclear, use the ticker symbol only: "Unknown Company (TICKER)"
+            - Format: **Company Name (TICKER)** - use validated company name from reference list
+            - NEVER use "Belirtilmemiş" or "Not Specified" - if ticker exists in reference, use that exact name
+            - STRICT RULE: When you see ticker "IREN" in transcript, you MUST use the company name from VALIDATED TICKER REFERENCE (e.g., "IREN Limited" or "Iris Energy Ltd.")
+            - STRICT RULE: When you see any ticker symbol, FIRST check the VALIDATED TICKER REFERENCE - if it exists there, use that exact company name
+            - STRICT RULE: If ticker is not in VALIDATED TICKER REFERENCE, use format: "Unknown Company (TICKER)" - NEVER invent a company name
+            """
+            
+            # Generate content with rate limiting and retry logic
+            max_retries = 3
+            retry_delay = 60  # Start with 60 seconds delay
+            
+            for attempt in range(max_retries):
+                try:
+                    response = model.generate_content(prompt)
+                    analysis_text = response.text
+                    break
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "quota" in error_msg or "rate" in error_msg or "limit" in error_msg:
+                        if attempt < max_retries - 1:
+                            self.logger.warning(f"Gemini API rate limit hit (attempt {attempt + 1}/{max_retries}). Waiting {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                        else:
+                            raise Exception(f"Gemini API rate limit exceeded after {max_retries} attempts: {e}")
+                    else:
+                        raise e
             
             # CRITICAL POST-PROCESSING: Fix index name false positives
             # Replace "Standard Motor Products, Inc. (SMP)" with "S&P 500 Index (SPX)" when context suggests it's the index
