@@ -605,13 +605,101 @@ class AcceleratedNasdaqTrader:
                 return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
             return analysis_text
         
-        # Rebuild section with enhanced trades
+        # Filter and rank trades by quality - keep only truly high potential ones
+        filtered_trades = self._filter_high_quality_trades(enhanced_trades)
+        
+        # Rebuild section with filtered trades
         enhanced_section = "## 🎯 HIGH POTENTIAL TRADES\n\n"
-        enhanced_section += "\n\n".join(enhanced_trades)
+        enhanced_section += "\n\n".join(filtered_trades)
         enhanced_section += "\n"
         
         # Replace original section
         return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
+    
+    def _filter_high_quality_trades(self, trades: list) -> list:
+        """Filter and rank trades by quality metrics - keep all high potential ones (no limit)"""
+        import re
+        
+        scored_trades = []
+        min_quality_score = 20  # Minimum score to be considered "high potential"
+        
+        for trade in trades:
+            score = 0
+            trade_data = {'trade': trade, 'score': 0}
+            
+            # Extract Risk/Reward ratio
+            rr_match = re.search(r'Risk/Reward:\s*\*\*1:([\d.]+)\*\*', trade, re.IGNORECASE)
+            if rr_match:
+                try:
+                    rr_ratio = float(rr_match.group(1))
+                    trade_data['risk_reward'] = rr_ratio
+                    # Higher Risk/Reward = higher score
+                    score += min(rr_ratio * 2, 50)  # Cap at 50 points
+                except ValueError:
+                    pass
+            
+            # Extract Risk percentage
+            risk_match = re.search(r'Risk:\s*\*\*([\d.]+)%\*\*', trade, re.IGNORECASE)
+            if risk_match:
+                try:
+                    risk_pct = float(risk_match.group(1))
+                    trade_data['risk'] = risk_pct
+                    # Lower risk = higher score (prefer trades with risk < 5%)
+                    if risk_pct < 5:
+                        score += 10
+                    elif risk_pct < 10:
+                        score += 5
+                except ValueError:
+                    pass
+            
+            # Check for BUY action (prefer BUY over TAKE PROFIT)
+            if re.search(r':\s*BUY\s+', trade, re.IGNORECASE):
+                score += 20
+            elif re.search(r':\s*TAKE\s+PROFIT', trade, re.IGNORECASE):
+                score -= 10  # Penalize TAKE PROFIT trades
+            
+            # Check for Target (trades with targets are more actionable)
+            if re.search(r'Target:\s*\*\*', trade, re.IGNORECASE):
+                score += 10
+            
+            # Check for complete data (Entry, Stop, Target, Risk, Risk/Reward all present)
+            has_entry = bool(re.search(r'Entry:\s*\*\*', trade, re.IGNORECASE))
+            has_stop = bool(re.search(r'Stop:\s*\*\*', trade, re.IGNORECASE))
+            has_target = bool(re.search(r'Target:\s*\*\*', trade, re.IGNORECASE))
+            has_risk = bool(re.search(r'Risk:\s*\*\*', trade, re.IGNORECASE))
+            has_rr = bool(re.search(r'Risk/Reward:\s*\*\*', trade, re.IGNORECASE))
+            
+            complete_data_score = sum([has_entry, has_stop, has_target, has_risk, has_rr]) * 2
+            score += complete_data_score
+            
+            # Penalize low Risk/Reward ratios (< 3:1) - filter out very low quality
+            if 'risk_reward' in trade_data and trade_data['risk_reward'] < 3:
+                score -= 20  # Heavy penalty for very low Risk/Reward
+            
+            trade_data['score'] = score
+            scored_trades.append(trade_data)
+        
+        # Sort by score (highest first)
+        scored_trades.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Filter by minimum quality score - keep all trades that meet quality threshold
+        # NO LIMIT on number of trades - show all high potential ones
+        filtered = [t['trade'] for t in scored_trades if t['score'] >= min_quality_score]
+        
+        # If no trades meet the threshold, keep at least top 5 (fallback)
+        if not filtered and scored_trades:
+            filtered = [t['trade'] for t in scored_trades[:5]]
+            self.logger.info(f"No trades met quality threshold ({min_quality_score}), keeping top 5")
+        
+        # Renumber the trades
+        renumbered_trades = []
+        for i, trade in enumerate(filtered, 1):
+            # Replace the number at the start
+            renumbered = re.sub(r'\*\*(\d+)\.\*\*', f'**{i}.**', trade, count=1)
+            renumbered_trades.append(renumbered)
+        
+        self.logger.info(f"Filtered {len(trades)} trades to {len(renumbered_trades)} high-quality trades (no limit, quality threshold: {min_quality_score})")
+        return renumbered_trades
     
     def _create_fallback_high_potential_trades(self, analysis_text: str) -> Optional[str]:
         """Create HIGH POTENTIAL TRADES section from TRADING OPPORTUNITIES when LLM didn't generate any"""
