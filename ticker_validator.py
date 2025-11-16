@@ -123,22 +123,96 @@ class TickerValidator:
             self.logger.warning(f"IEX Cloud validation failed for {ticker}: {e}")
             return False, None, None
     
-    def validate_ticker(self, ticker: str) -> Tuple[bool, Optional[str], Optional[str], Optional[Dict]]:
+    def _generate_fuzzy_candidates(self, ticker: str, max_distance: int = 2) -> list:
         """
-        Validate ticker with caching and fallback mechanisms
+        Generate fuzzy matching candidates for a ticker (edit distance 1-2)
+        
+        Args:
+            ticker: Original ticker to find candidates for
+            max_distance: Maximum edit distance (1 or 2)
+            
+        Returns:
+            List of candidate tickers to try
+        """
+        candidates = set()
+        ticker = ticker.upper()
+        
+        # Single character substitutions (edit distance 1)
+        for i in range(len(ticker)):
+            for char in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                candidate = ticker[:i] + char + ticker[i+1:]
+                if candidate != ticker:
+                    candidates.add(candidate)
+        
+        # Single character insertions (edit distance 1)
+        for i in range(len(ticker) + 1):
+            for char in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                candidate = ticker[:i] + char + ticker[i:]
+                if len(candidate) <= 5:  # Keep within ticker length limits
+                    candidates.add(candidate)
+        
+        # Single character deletions (edit distance 1)
+        for i in range(len(ticker)):
+            candidate = ticker[:i] + ticker[i+1:]
+            if len(candidate) >= 2:  # Keep minimum length
+                candidates.add(candidate)
+        
+        # Limit to reasonable candidates (2-5 characters)
+        return sorted([c for c in candidates if 2 <= len(c) <= 5])
+    
+    def validate_ticker_with_fuzzy(self, ticker: str, enable_fuzzy: bool = True) -> Tuple[bool, Optional[str], Optional[str], Optional[Dict], Optional[str]]:
+        """
+        Validate ticker with fuzzy matching fallback
         
         Args:
             ticker: Ticker symbol to validate
+            enable_fuzzy: Whether to try fuzzy matching if direct validation fails
             
         Returns:
-            (is_valid, company_name, error_message, ticker_info)
+            (is_valid, company_name, error_message, ticker_info, corrected_ticker)
+            corrected_ticker is the actual ticker that validated (if different from input)
+        """
+        ticker = ticker.upper().strip()
+        original_ticker = ticker
+        
+        # First try direct validation (without fuzzy to avoid recursion)
+        is_valid, company_name, error_msg, ticker_info = self._validate_ticker_direct(ticker)
+        
+        if is_valid:
+            return True, company_name, error_msg, ticker_info, ticker
+        
+        # If direct validation failed and fuzzy is enabled, try fuzzy matching
+        if enable_fuzzy and not is_valid:
+            self.logger.info(f"Direct validation failed for {ticker}, trying fuzzy matching...")
+            candidates = self._generate_fuzzy_candidates(ticker, max_distance=1)
+            
+            # Limit to top candidates to avoid too many API calls
+            # Try most promising candidates first (similar length, similar characters)
+            candidates = sorted(candidates, key=lambda x: (
+                abs(len(x) - len(ticker)),  # Prefer similar length
+                -sum(1 for a, b in zip(x, ticker) if a == b),  # Prefer more matching chars (negative for descending)
+            ))
+            
+            # Limit to top 10 candidates
+            for candidate in candidates[:10]:
+                self.logger.info(f"Trying fuzzy candidate: {candidate}")
+                is_valid, company_name, error_msg, ticker_info = self._validate_ticker_direct(candidate)
+                
+                if is_valid:
+                    self.logger.info(f"✅ Fuzzy match found: {ticker} -> {candidate} ({company_name})")
+                    return True, company_name, None, ticker_info, candidate
+        
+        return False, None, error_msg, None, None
+    
+    def _validate_ticker_direct(self, ticker: str) -> Tuple[bool, Optional[str], Optional[str], Optional[Dict]]:
+        """
+        Internal method to validate ticker without fuzzy matching (to avoid recursion)
         """
         ticker = ticker.upper().strip()
         
         # Check cache first
         if self.is_cache_valid(ticker):
             cached_data = self.cache[ticker]
-            self.logger.info(f"Using cached validation for {ticker}")
             return (
                 cached_data['is_valid'],
                 cached_data.get('company_name'),
@@ -178,8 +252,19 @@ class TickerValidator:
         }
         self.save_cache()
         
-        self.logger.error(f"❌ {ticker} validation failed: {error_msg}")
         return False, None, error_msg, None
+    
+    def validate_ticker(self, ticker: str) -> Tuple[bool, Optional[str], Optional[str], Optional[Dict]]:
+        """
+        Validate ticker with caching and fallback mechanisms
+        
+        Args:
+            ticker: Ticker symbol to validate
+            
+        Returns:
+            (is_valid, company_name, error_message, ticker_info)
+        """
+        return self._validate_ticker_direct(ticker)
     
     def validate_multiple_tickers(self, tickers: list) -> Dict[str, Dict]:
         """

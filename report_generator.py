@@ -85,22 +85,31 @@ Required JSON structure:
 }}
 
 CRITICAL REQUIREMENTS:
-1. Include EVERY ticker mentioned in transcript - check the ALL TICKERS EXTRACTED list above - NO EXCEPTIONS
-2. Use ONLY information from transcript - NO assumptions, NO external knowledge, NO guessing
-3. Extract timestamps EXACTLY from [MM:SS] or [HH:MM:SS] brackets in transcript when ticker is first mentioned
-4. Use validated company names from ticker reference when available (never invent company names)
-5. Mark high_potential=true ONLY for tickers with explicit BUY/SELL/HOLD recommendations in transcript
-6. For prices: Use EXACT values from transcript, or null if not mentioned - NEVER guess or estimate
-7. For dates: Use EXACT format from transcript - if only day/month mentioned, do NOT add year
-8. For summary: Base ONLY on transcript content - NO external interpretation
-9. If any field is not mentioned in transcript, use null (not empty string, not placeholder text)
+1. Include a ticker ONLY if it has technical analysis details (support, resistance, targets, sentiment, price levels, trading recommendations)
+2. Do NOT include tickers that are only briefly mentioned without any trading analysis or context
+3. For validated tickers (from reference), check transcript - if there's trading analysis, include it; if not, skip it
+4. For unvalidated tickers, include them ONLY if they have clear trading analysis (prices, support/resistance, targets, sentiment)
+5. DO NOT include obvious false positives like Turkish common words (BAKIN, BELKI, BIRAZ, BUNDA, DAHA, DOLAR, FIYAT, HATTA, KADAR, OLAN, ONDA, ONUN, ORADA, UZUN, YANI, YINE, ZAMAN, ZATEN, etc.)
+6. Use ONLY information from transcript - NO assumptions, NO external knowledge, NO guessing
+7. Extract timestamps EXACTLY from [MM:SS] or [HH:MM:SS] brackets in transcript when ticker is first mentioned
+8. Use validated company names from ticker reference when available (never invent company names)
+9. Mark high_potential=true ONLY for tickers with explicit BUY/SELL/HOLD recommendations AND technical analysis in transcript
+10. For prices: Use EXACT values from transcript, or null if not mentioned - NEVER guess or estimate
+11. For dates: Use EXACT format from transcript - if only day/month mentioned, do NOT add year
+12. For summary: Base ONLY on transcript content - NO external interpretation
+13. If any field is not mentioned in transcript, use null (not empty string, not placeholder text)
+14. QUALITY OVER QUANTITY: Only include tickers with actionable trading information
 
 VALIDATION CHECKLIST:
-- Every ticker in ALL TICKERS EXTRACTED list must appear in the JSON
+- Include validated tickers ONLY if they have technical analysis in transcript (support, resistance, targets, sentiment, price levels)
+- Do NOT include tickers just because they're validated - they need trading context
+- Consider including unvalidated tickers ONLY if they have clear trading analysis (prices, support/resistance, targets, sentiment)
+- DO NOT include obvious Turkish common words (BAKIN, BELKI, BIRAZ, etc.)
 - Every price must be traceable to exact transcript mention
 - Every timestamp must match transcript brackets
 - Every date must match transcript exactly (no additions)
 - No information added that isn't in transcript
+- Quality over quantity - only actionable trading information
 
 Return ONLY the JSON object, no markdown formatting, no code blocks, no explanations."""
 
@@ -120,19 +129,20 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
             # Parse JSON
             structured_data = json.loads(response_text)
             
-            # CRITICAL VALIDATION: Verify all extracted tickers are included
-            extracted_ticker_set = set(self.extracted_tickers) if self.extracted_tickers else set()
+            # CRITICAL VALIDATION: Verify all VALIDATED tickers are included
+            # Only include tickers that have been validated (to avoid false positives like Turkish words)
+            validated_ticker_set = set(self.validated_ticker_map.keys()) if self.validated_ticker_map else set()
             extracted_in_json = set(t.get('ticker', '') for t in structured_data.get('tickers', []))
-            missing_tickers = extracted_ticker_set - extracted_in_json
+            missing_validated_tickers = validated_ticker_set - extracted_in_json
             
-            if missing_tickers:
-                # Log warning but don't fail - we'll add missing tickers below
+            if missing_validated_tickers:
+                # Log warning but don't fail - we'll add missing validated tickers below
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.warning(f"Extracted JSON missing {len(missing_tickers)} tickers: {missing_tickers}")
+                logger.warning(f"Extracted JSON missing {len(missing_validated_tickers)} validated tickers: {missing_validated_tickers}")
             
-            # Add missing tickers with minimal data (to ensure ALL tickers are included)
-            for missing_ticker in missing_tickers:
+            # Add missing VALIDATED tickers with minimal data (only validated tickers to avoid false positives)
+            for missing_ticker in missing_validated_tickers:
                 structured_data['tickers'].append({
                     'ticker': missing_ticker,
                     'company_name': self.validated_ticker_map.get(missing_ticker, 'Unknown Company'),
@@ -274,12 +284,21 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
             ref.append("")
         
         if self.extracted_tickers:
-            ref.append("**ALL TICKERS EXTRACTED FROM TRANSCRIPT (MUST INCLUDE ALL):**")
-            for ticker in sorted(set(self.extracted_tickers)):
+            ref.append("**ALL TICKERS EXTRACTED FROM TRANSCRIPT (MUST INCLUDE VALIDATED ONES):**")
+            # Show all extracted tickers, marking which are validated
+            all_extracted = sorted(set(self.extracted_tickers))
+            for ticker in all_extracted:
                 if ticker in self.validated_ticker_map:
-                    ref.append(f"- {ticker} (validated: {self.validated_ticker_map[ticker]})")
+                    ref.append(f"- {ticker} (✓ validated: {self.validated_ticker_map[ticker]})")
                 else:
-                    ref.append(f"- {ticker} (not validated - check transcript for company name)")
+                    # Check if it's a common Turkish word (false positive)
+                    common_turkish_words = {
+                        'BAKIN', 'BELKI', 'BIRAZ', 'BUNDA', 'DAHA', 'DOLAR', 'FIYAT', 'HATTA', 
+                        'KADAR', 'OLAN', 'ONDA', 'ONUN', 'ORADA', 'UZUN', 'YANI', 'YINE', 
+                        'ZAMAN', 'ZATEN', 'VAR', 'BIR', 'BU', 'VE', 'YA', 'DA', 'DE', 'KI', 'ILK', 'SON'
+                    }
+                    if ticker not in common_turkish_words:
+                        ref.append(f"- {ticker} (not validated - check transcript for company name and context)")
             ref.append("")
         
         if self.ticker_corrections:

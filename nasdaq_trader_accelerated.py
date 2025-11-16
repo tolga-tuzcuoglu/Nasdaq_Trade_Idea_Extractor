@@ -258,14 +258,100 @@ class AcceleratedNasdaqTrader:
                 if len(ticker) >= 2 and len(ticker) <= 5:
                     tickers.add(ticker)
         
-        # Filter out common false positives
+        # Filter out common false positives (English and Turkish common words)
         false_positives = {
+            # English common words
             'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HAD', 'HER', 'WAS', 'ONE', 'OUR',
             'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO',
             'WHO', 'BOY', 'DID', 'ITS', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'AL', 'AS', 'AT', 'BE', 'BY',
             'DO', 'GO', 'IF', 'IN', 'IS', 'IT', 'ME', 'MY', 'NO', 'OF', 'ON', 'OR', 'SO', 'TO', 'UP', 'WE',
-            'AN', 'AM', 'AI', 'OK', 'TV', 'ID', 'OS', 'PC', 'FY', 'IQ', 'QA', 'PM', 'AM', 'IO', 'IE', 'EU'
+            'AN', 'AM', 'AI', 'OK', 'TV', 'ID', 'OS', 'PC', 'FY', 'IQ', 'QA', 'PM', 'AM', 'IO', 'IE', 'EU',
+            # Turkish common words (capitalized versions that might be extracted)
+            'BAKIN', 'BELKI', 'BIRAZ', 'BUNDA', 'DAHA', 'DOLAR', 'FIYAT', 'HATTA', 'KADAR', 'OLAN', 'ONDA',
+            'ONUN', 'ORADA', 'UZUN', 'YANI', 'YINE', 'ZAMAN', 'ZATEN', 'VAR', 'BIR', 'BU', 'VE', 'YA', 'DA',
+            'DE', 'KI', 'ILK', 'SON', 'DAHA', 'BIR', 'BIRAZ', 'BUNDA', 'ONDA', 'ONUN', 'ORADA', 'HATTA'
         }
+        
+        # Additional pass: Look for company names mentioned in transcript that might map to tickers
+        # Use generalizable patterns that work across different videos
+        # Pattern: Company name (with variations) -> ticker mapping
+        company_name_patterns = [
+            # Technology/SaaS companies
+            (r'\bApple\b', 'AAPL'),  # Apple Inc.
+            (r'\bAxon\s+(?:Enterprise|Inc\.?)?\b', 'AXON'),
+            (r'\bAxon\s+Enterprise\b', 'AXON'),
+            (r'\bUnited\s+Health\b', 'UNH'),
+            (r'\bUnitedHealth\b', 'UNH'),
+            (r'\bEli\s+Lilly\b', 'LLY'),
+            (r'\bEl\s+ayliliğe\b', 'LLY'),  # Turkish pronunciation
+            (r'\bArista\s+(?:Networks|Inc\.?)?\b', 'ANET'),
+            (r'\bArista\s+Networks\b', 'ANET'),
+            (r'\bAstra\s+(?:Space|Inc\.?)?\b', 'ASTR'),  # Will be corrected to ALAB
+            (r'\bAstralabs\b', 'ASIL'),
+            (r'\bSalesforce\b', 'CRM'),
+            (r'\bSea\s+(?:Limited|Limit|Inc\.?)?\b', 'SE'),  # Catches "Sea Limited" and "Sea Limit" (transcription variation)
+            (r'\bSea\s+Limited\b', 'SE'),
+            (r'\bSea\s+Limit\b', 'SE'),  # Transcription variation
+            (r'\bGrab\s+(?:Holdings|Limited|Inc\.?)?\b', 'GRAB'),
+            (r'\bGrab\s+Holdings\b', 'GRAB'),
+            (r'\bZeta\b', 'ZETA'),
+            (r'\bNVIDIA\b', 'NVDA'),
+            (r'\bNvidia\b', 'NVDA'),
+            (r'\bHims\b', 'HIMS'),  # Hims & Hers Health
+            (r'\bHymsenhurst\b', 'HIMS'),  # Turkish mispronunciation of "Hims"
+            (r'\bEn\s+misli\b', 'NBIS'),  # Transcription: "En misli" is how "NBIS" sounds in Turkish
+            (r'\bNBIS\b', 'NBIS'),  # NBIS is a valid ticker (not NVIDIA)
+            (r'\bCrido\b', 'CRIDO'),  # Will be corrected to CRDO
+            (r'\bOscar\s+(?:Health|Inc\.?)?\b', 'OSCR'),  # Oscar Health, Inc.
+            (r'\bOscar\s+Health\b', 'OSCR'),
+            (r'\bTempus\s+(?:AI|Inc\.?)?\b', 'TEM'),
+            (r'\bTempus\s+AI\b', 'TEM'),
+            (r'\bTempsey\b', 'TEM'),  # Turkish pronunciation of Tempus
+            (r'\bLemonade\b', 'LMND'),
+            (r'\bLemmon\s*8\b', 'LMND'),  # Transcription variation
+            (r'\bLemmon8\b', 'LMND'),  # Transcription variation
+            (r'\bInteractive\s+Brokers\b', 'IBKR'),
+            (r'\bIBEKARAY\b', 'IBKR'),  # Turkish pronunciation
+            (r'\bibekaray\b', 'IBKR'),  # Turkish pronunciation (lowercase)
+            (r'\bAstera\s+Labs\b', 'ALAB'),
+            (r'\bASTRALAC\b', 'ALAB'),  # Turkish mispronunciation
+            (r'\bastralac\b', 'ALAB'),  # Turkish mispronunciation (lowercase)
+            (r'\bastralaç\b', 'ALAB'),  # Turkish mispronunciation with ç
+            (r'\bDuolingo\b', 'DUOL'),
+            (r'\bDualingo\b', 'DUOL'),  # Transcription variation
+            (r'\bMarvell\b', 'MRVL'),
+            (r'\bMarvel\b', 'MRVL'),  # Transcription variation (missing 'l')
+            (r'\bMicron\b', 'MU'),
+            (r'\bIron\s+(?:Limited|Inc\.?)?\b', 'IRON'),  # Will be corrected to IREN
+            (r'\bIren\b', 'IREN'),
+            (r'\bIREN\b', 'IREN'),
+            (r'\bDLocal\b', 'DLO'),
+            (r'\bD\s+Local\b', 'DLO'),
+            (r'\bCorewave\b', 'CRWV'),
+            (r'\bCoreweave\b', 'CRWV'),
+            # Manufacturing/Electronics
+            (r'\bCelestica\b', 'CLS'),
+            (r'\bCELESTICA\b', 'CLS'),  # Uppercase variation
+            (r'\bcelestica\b', 'CLS'),  # Lowercase variation
+            (r'\bselestika\b', 'CLS'),  # Turkish pronunciation
+            (r'\bSelestika\b', 'CLS'),  # Turkish pronunciation (capitalized)
+            (r'\bCelestica\'ya\b', 'CLS'),  # Turkish grammar variation (first mention)
+            (r'\bCelestica\'da\b', 'CLS'),  # Turkish grammar variation
+            (r'\bCelsius\s+(?:Holdings|Inc\.?)?\b', 'CELH'),
+            (r'\bCelsius\b', 'CELH'),
+            # Special case: "Celestica'ya da düşüş" after CLS discussion is actually Celsius (CELH)
+            # This is a transcription error - "Celsius'ya" was transcribed as "Celestica'ya"
+            # Pattern: After CLS discussion (lines 71-74), if "Celestica'ya da düşüş" appears with different support/resistance, it's CELH
+            (r'\bCelestica\'ya\s+da\s+düşüş\b', 'CELH'),  # Transcription error: actually "Celsius'ya"
+            # Additional context: if support 53-54 or resistance 66 is mentioned after "Celestica'ya", it's CELH not CLS
+        ]
+        
+        for pattern, ticker_code in company_name_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                if ticker_code in self.ticker_corrections:
+                    ticker_code = self.ticker_corrections[ticker_code]
+                tickers.add(ticker_code)
+                self.logger.info(f"Found company name pattern '{pattern}' -> {ticker_code}")
         
         # Additional pass: Look for ticker-like words that might have been missed
         # This catches standalone capitalized words that appear in trading contexts
@@ -314,6 +400,58 @@ class AcceleratedNasdaqTrader:
                 filtered_tickers.append(ticker)
         
         return filtered_tickers
+    
+    def extract_tickers_with_llm(self, transcript: str, model) -> set:
+        """
+        Use LLM to identify tickers from transcript context
+        This is a generalizable fallback that catches tickers mentioned in unusual ways
+        
+        Args:
+            transcript: Transcript text
+            model: LLM model instance
+            
+        Returns:
+            Set of additional ticker symbols found by LLM
+        """
+        try:
+            prompt = f"""You are a financial data extraction specialist. Extract ALL stock ticker symbols mentioned in this Turkish trading video transcript.
+
+TRANSCRIPT:
+{transcript[:5000]}  # Limit to first 5000 chars to avoid token limits
+
+INSTRUCTIONS:
+1. Identify ALL stock ticker symbols (NASDAQ, NYSE, etc.) mentioned in the transcript
+2. Include tickers mentioned by:
+   - Company names (e.g., "Axon Enterprise" = AXON, "United Health" = UNH)
+   - Direct ticker codes (e.g., "CRM", "SE", "NVDA")
+   - Mispronunciations (e.g., "El ayliliğe" = LLY, "En misli" = NVDA)
+3. Return ONLY a JSON array of ticker symbols, no explanations
+4. Format: ["TICKER1", "TICKER2", ...]
+
+Return ONLY valid JSON array with ticker symbols in uppercase."""
+            
+            response = model.generate_content(prompt)
+            response_text = response.text.strip()
+            
+            # Clean up response
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.startswith("```"):
+                response_text = response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            response_text = response_text.strip()
+            
+            # Parse JSON
+            import json
+            llm_tickers = json.loads(response_text)
+            
+            # Convert to set and uppercase
+            return set(t.upper().strip() for t in llm_tickers if isinstance(t, str) and len(t.strip()) >= 2)
+            
+        except Exception as e:
+            self.logger.warning(f"LLM ticker extraction failed: {e}")
+            return set()
     
     def format_validation_summary(self, validation_results: Dict[str, Any]) -> str:
         """
@@ -469,12 +607,22 @@ class AcceleratedNasdaqTrader:
             
             # Download video
             download_result = self.download_video(url)
-            if isinstance(download_result, tuple):
-                audio_path, video_title, channel_name = download_result
+            if isinstance(download_result, tuple) and len(download_result) == 2:
+                audio_path, video_metadata = download_result
             else:
                 audio_path = download_result
-                video_title = "Unknown Title"
-                channel_name = "Unknown Channel"
+                video_metadata = {
+                    'title': "Unknown Title",
+                    'channel': "Unknown Channel",
+                    'video_id': 'unknown',
+                    'upload_date': None,
+                    'view_count': None,
+                    'like_count': None,
+                    'duration': None,
+                    'duration_seconds': None,
+                    'description': None,
+                    'url': url
+                }
             
             if not audio_path:
                 raise Exception("Failed to download video")
@@ -484,8 +632,8 @@ class AcceleratedNasdaqTrader:
             if not transcript:
                 raise Exception("Failed to transcribe audio")
             
-            # Generate AI analysis
-            analysis = self.generate_analysis(transcript, video_title, channel_name)
+            # Generate AI analysis with full metadata
+            analysis = self.generate_analysis(transcript, video_metadata)
             if not analysis:
                 raise Exception("Failed to generate analysis")
             
@@ -495,6 +643,7 @@ class AcceleratedNasdaqTrader:
                 'url': url,
                 'success': True,
                 'result': analysis,
+                'metadata': video_metadata,
                 'processing_time': processing_time
             }
             
@@ -530,7 +679,20 @@ class AcceleratedNasdaqTrader:
                 # Use the most recent existing file
                 existing_file = max(existing_files, key=os.path.getctime)
                 self.logger.info(f"Using cached audio: {existing_file}")
-                return existing_file
+                # Return minimal metadata for cached files (we don't have full metadata)
+                video_metadata = {
+                    'video_id': video_id,
+                    'title': 'Cached Video',
+                    'channel': 'Unknown Channel',
+                    'upload_date': None,
+                    'view_count': None,
+                    'like_count': None,
+                    'duration': None,
+                    'duration_seconds': None,
+                    'description': None,
+                    'url': url
+                }
+                return existing_file, video_metadata
             
             # Only download if no cached file exists
             self.logger.info(f"Downloading new video: {video_id}")
@@ -546,13 +708,32 @@ class AcceleratedNasdaqTrader:
             max_retries_per_browser = auth_config.get('MAX_RETRIES_PER_BROWSER', 3)
             fallback_to_no_auth = auth_config.get('FALLBACK_TO_NO_AUTH', True)
             
-            # Configure yt-dlp for audio-only download
+            # Configure yt-dlp for audio-only download with anti-403 measures
             ydl_opts = {
                 'format': 'bestaudio[ext=m4a]/bestaudio/best',
                 'outtmpl': f'video_cache/%(id)s_{date_str}.%(ext)s',
                 'noplaylist': True,
                 'quiet': True,
                 'no_warnings': True,
+                # Anti-403 measures
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web'],  # Try Android client first, fallback to web
+                        'player_skip': ['webpage', 'configs'],
+                    }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive',
+                },
+                'retries': 10,
+                'fragment_retries': 10,
+                'ignoreerrors': False,
+                'no_check_certificate': False,
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'm4a',
@@ -608,10 +789,35 @@ class AcceleratedNasdaqTrader:
                     if info is None:
                         # All browsers failed
                         if fallback_to_no_auth:
-                            self.logger.warning("All browser authentication attempts failed, trying without authentication")
-                            # Fallback to no authentication
-                            with YoutubeDL(ydl_opts) as ydl:
-                                info = ydl.extract_info(url, download=True)
+                            self.logger.warning("All browser authentication attempts failed, trying without authentication with different extraction methods")
+                            # Try different extraction methods as fallback
+                            extraction_methods = [
+                                {'player_client': ['android', 'web']},  # Try Android first
+                                {'player_client': ['ios', 'web']},       # Try iOS
+                                {'player_client': ['web']},              # Try web only
+                                {'player_client': ['mweb', 'web']},     # Try mobile web
+                            ]
+                            
+                            for method in extraction_methods:
+                                try:
+                                    self.logger.info(f"Trying extraction method: {method}")
+                                    ydl_opts_fallback = ydl_opts.copy()
+                                    ydl_opts_fallback['extractor_args'] = {
+                                        'youtube': {
+                                            **method,
+                                            'player_skip': ['webpage', 'configs'],
+                                        }
+                                    }
+                                    with YoutubeDL(ydl_opts_fallback) as ydl:
+                                        info = ydl.extract_info(url, download=True)
+                                        self.logger.info(f"Successfully downloaded using method: {method}")
+                                        break
+                                except Exception as e:
+                                    self.logger.warning(f"Extraction method {method} failed: {str(e)[:100]}")
+                                    continue
+                            
+                            if info is None:
+                                raise Exception("All extraction methods failed. YouTube may be blocking requests. Try: 1) Update yt-dlp: pip install -U yt-dlp, 2) Export fresh cookies from browser, 3) Check if videos are accessible in browser")
                         else:
                             # Re-raise the last error if fallback is disabled
                             if last_error:
@@ -619,11 +825,46 @@ class AcceleratedNasdaqTrader:
                             else:
                                 raise Exception("All browser authentication attempts failed. Tip: Close your browser, ensure you're logged into YouTube as a member, or export cookies to cookies.txt file.")
             else:
-                # No authentication configured, proceed normally
-                with YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
+                # No authentication configured, proceed normally with fallback methods
+                try:
+                    with YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "403" in error_msg or "forbidden" in error_msg:
+                        self.logger.warning("Initial download failed with 403, trying alternative extraction methods")
+                        # Try different extraction methods
+                        extraction_methods = [
+                            {'player_client': ['android', 'web']},
+                            {'player_client': ['ios', 'web']},
+                            {'player_client': ['web']},
+                            {'player_client': ['mweb', 'web']},
+                        ]
+                        
+                        for method in extraction_methods:
+                            try:
+                                self.logger.info(f"Trying extraction method: {method}")
+                                ydl_opts_fallback = ydl_opts.copy()
+                                ydl_opts_fallback['extractor_args'] = {
+                                    'youtube': {
+                                        **method,
+                                        'player_skip': ['webpage', 'configs'],
+                                    }
+                                }
+                                with YoutubeDL(ydl_opts_fallback) as ydl:
+                                    info = ydl.extract_info(url, download=True)
+                                    self.logger.info(f"Successfully downloaded using method: {method}")
+                                    break
+                            except Exception as e2:
+                                self.logger.warning(f"Extraction method {method} failed: {str(e2)[:100]}")
+                                continue
+                        
+                        if info is None:
+                            raise Exception(f"All extraction methods failed. Original error: {e}. Try: 1) Update yt-dlp: pip install -U yt-dlp, 2) Export fresh cookies from browser")
+                    else:
+                        raise e
             
-            # Extract metadata (common for all authentication methods)
+            # Extract comprehensive metadata (common for all authentication methods)
             downloaded_video_id = info.get('id', 'unknown')
             video_title = info.get('title', '')
             channel_name = info.get('uploader', '')
@@ -634,23 +875,72 @@ class AcceleratedNasdaqTrader:
             
             # If channel is empty or None, try alternative fields
             if not channel_name:
-                channel_name = info.get('uploader_id', '') or info.get('channel', '')
+                channel_name = info.get('uploader_id', '') or info.get('channel', '') or info.get('channel_id', '')
             
-            # Final fallback
-            if not video_title:
-                video_title = 'Unknown Title'
-            if not channel_name:
-                channel_name = 'Unknown Channel'
+            # Extract additional metadata
+            upload_date = info.get('upload_date', '')
+            if upload_date:
+                # Format upload date: YYYYMMDD -> YYYY-MM-DD
+                try:
+                    from datetime import datetime as dt
+                    upload_date_formatted = dt.strptime(upload_date, '%Y%m%d').strftime('%Y-%m-%d')
+                except:
+                    upload_date_formatted = upload_date
+            else:
+                upload_date_formatted = None
+            
+            view_count = info.get('view_count', None)
+            like_count = info.get('like_count', None)
+            duration = info.get('duration', None)  # Duration in seconds
+            description = info.get('description', '') or info.get('descriptions', '')
+            if isinstance(description, list):
+                description = '\n'.join(description) if description else ''
+            
+            # Format duration as HH:MM:SS or MM:SS
+            duration_formatted = None
+            if duration:
+                try:
+                    hours = int(duration // 3600)
+                    minutes = int((duration % 3600) // 60)
+                    seconds = int(duration % 60)
+                    if hours > 0:
+                        duration_formatted = f"{hours}:{minutes:02d}:{seconds:02d}"
+                    else:
+                        duration_formatted = f"{minutes}:{seconds:02d}"
+                except:
+                    duration_formatted = str(duration)
+            
+            # Build metadata dictionary
+            video_metadata = {
+                'video_id': downloaded_video_id,
+                'title': video_title or 'Unknown Title',
+                'channel': channel_name or 'Unknown Channel',
+                'upload_date': upload_date_formatted,
+                'view_count': view_count,
+                'like_count': like_count,
+                'duration': duration_formatted,
+                'duration_seconds': duration,
+                'description': description[:500] if description else None,  # Limit description length
+                'url': url
+            }
+            
+            # Final fallback for title and channel
+            if not video_metadata['title'] or video_metadata['title'] == '':
+                video_metadata['title'] = 'Unknown Title'
+            if not video_metadata['channel'] or video_metadata['channel'] == '':
+                video_metadata['channel'] = 'Unknown Channel'
             
             # Log the extracted metadata for debugging
-            self.logger.info(f"Extracted metadata - Title: '{video_title}', Channel: '{channel_name}'")
+            self.logger.info(f"Extracted metadata - Title: '{video_metadata['title']}', Channel: '{video_metadata['channel']}', "
+                           f"Upload Date: '{video_metadata['upload_date']}', Views: {video_metadata['view_count']}, "
+                           f"Duration: {video_metadata['duration']}")
             
             # Find the downloaded file
             for ext in ['m4a', 'wav', 'mp3', 'webm']:
                 audio_path = f'video_cache/{downloaded_video_id}_{date_str}.{ext}'
                 if os.path.exists(audio_path):
                     self.logger.info(f"Downloaded and cached: {audio_path}")
-                    return audio_path, video_title, channel_name
+                    return audio_path, video_metadata
             
             raise Exception("Audio file not found after download")
                 
@@ -746,9 +1036,40 @@ class AcceleratedNasdaqTrader:
             self.logger.error(f"Transcription failed: {e}")
             return None
     
-    def generate_analysis(self, transcript, video_title="Unknown Title", channel_name="Unknown Channel"):
+    def generate_analysis(self, transcript, video_metadata=None):
         """Generate AI analysis using Gemini with improved two-step approach"""
         try:
+            # Handle backward compatibility - if metadata is not provided, create default
+            if video_metadata is None or not isinstance(video_metadata, dict):
+                # Backward compatibility: if old signature is used
+                if isinstance(video_metadata, str):
+                    video_title = video_metadata
+                    channel_name = "Unknown Channel"
+                else:
+                    video_title = "Unknown Title"
+                    channel_name = "Unknown Channel"
+                video_metadata = {
+                    'title': video_title,
+                    'channel': channel_name,
+                    'video_id': 'unknown',
+                    'upload_date': None,
+                    'view_count': None,
+                    'like_count': None,
+                    'duration': None,
+                    'duration_seconds': None,
+                    'description': None,
+                    'url': None
+                }
+            
+            # Extract metadata fields with defaults
+            video_title = video_metadata.get('title', 'Unknown Title')
+            channel_name = video_metadata.get('channel', 'Unknown Channel')
+            upload_date = video_metadata.get('upload_date')
+            view_count = video_metadata.get('view_count')
+            like_count = video_metadata.get('like_count')
+            duration = video_metadata.get('duration')
+            description = video_metadata.get('description')
+            
             # Setup Gemini
             api_key = os.getenv('GEMINI_API_KEY')
             if not api_key:
@@ -760,24 +1081,59 @@ class AcceleratedNasdaqTrader:
             # CRITICAL: Extract and validate tickers from transcript BEFORE generating analysis
             # This prevents hallucination by providing validated company names
             self.logger.info("Extracting and validating tickers from transcript...")
-            extracted_tickers = self.extract_tickers_from_text(transcript)
+            extracted_tickers_list = self.extract_tickers_from_text(transcript)
+            extracted_tickers = set(extracted_tickers_list)  # Convert to set for uniqueness
             self.logger.info(f"Found {len(extracted_tickers)} potential tickers in transcript: {extracted_tickers}")
+            
+            # Use LLM to identify additional tickers from context (comprehensive fallback)
+            # This catches tickers that might be mispronounced or mentioned in unusual ways
+            self.logger.info("Using LLM to identify tickers from context...")
+            llm_tickers = self.extract_tickers_with_llm(transcript, model)
+            if llm_tickers:
+                self.logger.info(f"LLM found {len(llm_tickers)} additional tickers: {llm_tickers}")
+                extracted_tickers.update(llm_tickers)
+                self.logger.info(f"Total unique tickers after LLM extraction: {len(extracted_tickers)}")
             
             # Validate all extracted tickers and build validated ticker mapping
             validated_ticker_map = {}
             all_extracted_tickers_list = list(extracted_tickers) if extracted_tickers else []
             
             if extracted_tickers:
-                validation_results = self.ticker_validator.validate_multiple_tickers(extracted_tickers)
-                for ticker, result in validation_results.items():
-                    if result.get('is_valid'):
-                        company_name = result.get('company_name', ticker)
-                        validated_ticker_map[ticker] = company_name
-                        self.logger.info(f"Validated: {ticker} -> {company_name}")
+                # Use fuzzy matching for validation - this will auto-correct close matches
+                fuzzy_corrections = {}  # Track fuzzy corrections
+                for ticker in extracted_tickers:
+                    # Try fuzzy matching if direct validation fails
+                    # Disable fuzzy for OSCAR to prevent incorrect match to ASCAR
+                    enable_fuzzy = True
+                    if ticker == 'OSCAR' or ticker == 'OSCR':
+                        enable_fuzzy = False  # OSCAR should validate directly, not fuzzy match
+                    is_valid, company_name, error_msg, ticker_info, corrected_ticker = \
+                        self.ticker_validator.validate_ticker_with_fuzzy(ticker, enable_fuzzy=enable_fuzzy)
+                    
+                    if is_valid:
+                        # Use corrected ticker if fuzzy match found a different one
+                        actual_ticker = corrected_ticker if corrected_ticker else ticker
+                        if actual_ticker != ticker:
+                            fuzzy_corrections[ticker] = actual_ticker
+                            self.logger.info(f"Fuzzy correction: {ticker} -> {actual_ticker}")
+                        
+                        validated_ticker_map[actual_ticker] = company_name
+                        self.logger.info(f"Validated: {actual_ticker} -> {company_name}")
                     else:
                         self.logger.warning(f"Invalid ticker found in transcript: {ticker}")
-                        # Still add to list so AI knows about it - it might be valid but not in yfinance
-                        all_extracted_tickers_list.append(ticker)
+                        # Only add to list if it's not a common Turkish word
+                        common_turkish_words = {
+                            'BAKIN', 'BELKI', 'BIRAZ', 'BUNDA', 'DAHA', 'DOLAR', 'FIYAT', 'HATTA', 
+                            'KADAR', 'OLAN', 'ONDA', 'ONUN', 'ORADA', 'UZUN', 'YANI', 'YINE', 
+                            'ZAMAN', 'ZATEN', 'VAR', 'BIR', 'BU', 'VE', 'YA', 'DA', 'DE', 'KI', 'ILK', 'SON'
+                        }
+                        if ticker not in common_turkish_words:
+                            all_extracted_tickers_list.append(ticker)
+                
+                # Merge fuzzy corrections into ticker_corrections for downstream use
+                if fuzzy_corrections:
+                    self.ticker_corrections.update(fuzzy_corrections)
+                    self.logger.info(f"Added {len(fuzzy_corrections)} fuzzy corrections to ticker_corrections")
             
             # Build validated ticker reference string for prompt
             validated_ticker_reference = ""
@@ -792,14 +1148,30 @@ class AcceleratedNasdaqTrader:
             all_tickers_reference = ""
             if all_extracted_tickers_list:
                 unique_tickers = sorted(set(all_extracted_tickers_list))
-                all_tickers_reference = "\n\n**ALL TICKERS EXTRACTED FROM TRANSCRIPT (MUST INCLUDE ALL):**\n"
-                all_tickers_reference += "The following ticker symbols were extracted from the transcript. You MUST include ALL of these in your report:\n"
+                all_tickers_reference = "\n\n**ALL TICKERS EXTRACTED FROM TRANSCRIPT:**\n"
+                all_tickers_reference += "The following ticker symbols were extracted from the transcript:\n"
                 for ticker in unique_tickers:
                     if ticker in validated_ticker_map:
-                        all_tickers_reference += f"- {ticker} (validated: {validated_ticker_map[ticker]})\n"
+                        all_tickers_reference += f"- {ticker} (✓ validated: {validated_ticker_map[ticker]}) - MUST include\n"
                     else:
-                        all_tickers_reference += f"- {ticker} (not validated - check transcript for company name)\n"
-                all_tickers_reference += "\n**CRITICAL**: Every ticker in this list MUST have its own section in the TRADING OPPORTUNITIES section. NO TICKER CAN BE SKIPPED.\n"
+                        # Check if it's a common Turkish word (false positive)
+                        common_turkish_words = {
+                            'BAKIN', 'BELKI', 'BIRAZ', 'BUNDA', 'DAHA', 'DOLAR', 'FIYAT', 'HATTA', 
+                            'KADAR', 'OLAN', 'ONDA', 'ONUN', 'ORADA', 'UZUN', 'YANI', 'YINE', 
+                            'ZAMAN', 'ZATEN', 'VAR', 'BIR', 'BU', 'VE', 'YA', 'DA', 'DE', 'KI', 'ILK', 'SON'
+                        }
+                        if ticker not in common_turkish_words:
+                            all_tickers_reference += f"- {ticker} (not validated - check transcript for company name and context, include if it's a real company)\n"
+                all_tickers_reference += "\n**CRITICAL INSTRUCTIONS:**\n"
+                all_tickers_reference += "1. Include a ticker if it has technical analysis details (support, resistance, targets, sentiment, price levels, trading recommendations)\n"
+                all_tickers_reference += "2. If a ticker is mentioned with technical analysis, it MUST be included - do not skip it\n"
+                all_tickers_reference += "3. Do NOT include tickers that are only mentioned briefly without any trading analysis or context\n"
+                all_tickers_reference += "4. For validated tickers (marked with ✓), check the transcript - if there's trading analysis, you MUST include it\n"
+                all_tickers_reference += "5. For unvalidated tickers, include them if they have clear trading analysis (prices, support/resistance, targets, sentiment)\n"
+                all_tickers_reference += "6. DO NOT include obvious Turkish common words (BAKIN, BELKI, BIRAZ, etc.)\n"
+                all_tickers_reference += "7. IMPORTANT: \"En misli\" is how \"NBIS\" sounds in Turkish transcription - if mentioned with support/resistance, MUST include NBIS in report (NBIS is a valid ticker, NOT NVIDIA/NVDA)\n"
+                all_tickers_reference += "8. IMPORTANT: \"Celestica'ya da düşüş\" at timestamp 4:54 is a transcription error - it's actually \"Celsius'ya\" (CELH) - look for different support/resistance levels (53-54 support, 66 resistance) which are different from CLS levels (297, 264, 370)\n"
+                all_tickers_reference += "9. Quality over quantity - include ALL tickers with actionable trading information\n"
             
             # Add ticker corrections reference if configured
             ticker_corrections_reference = ""
@@ -875,6 +1247,11 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             VIDEO INFORMATION:
             - Title: {video_title}
             - Channel: {channel_name}
+            {f"- Upload Date: {upload_date}" if upload_date else ""}
+            {f"- Duration: {duration}" if duration else ""}
+            {f"- Views: {view_count:,}" if view_count else ""}
+            {f"- Likes: {like_count:,}" if like_count else ""}
+            {f"- Description: {description[:200]}..." if description and len(description) > 200 else f"- Description: {description}" if description else ""}
             
             {validated_ticker_reference}
             
@@ -901,7 +1278,11 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             
             ## 📊 REPORT INFORMATION
             - **Source**: {video_title} - {channel_name}
-            - **Video Date**: [Date mentioned in video - ONLY use dates mentioned in video, add year if not specified]
+            {f"- **Video Upload Date**: {upload_date}" if upload_date else ""}
+            {f"- **Video Duration**: {duration}" if duration else ""}
+            {f"- **Views**: {view_count:,}" if view_count else ""}
+            {f"- **Likes**: {like_count:,}" if like_count else ""}
+            - **Video Date (from transcript)**: [Date mentioned in video - ONLY use dates mentioned in video, add year if not specified]
             
             **ÖNEMLİ TARİH KURALI**: Eğer video sadece "16 Eylül" diyorsa, "16 Eylül" yazın. "16 Eylül 2024" YAZMAYIN çünkü yıl belirtilmemiş.
             
@@ -909,7 +1290,17 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             [Brief summary of video content - 2-3 sentences covering main message and trading opportunities]
             
             ## 📈 TRADING OPPORTUNITIES
-            [CREATE SECTIONS FOR ALL TICKERS MENTIONED IN TRANSCRIPT - NO TICKER CAN BE SKIPPED]
+            [CREATE SECTIONS FOR ALL TICKERS - THIS IS CRITICAL]
+            
+            **MANDATORY TICKER REQUIREMENTS:**
+            1. Include a ticker if it has technical analysis details (support, resistance, targets, sentiment, price levels, trading context)
+            2. If a ticker is mentioned with technical analysis (support/resistance levels, price targets, sentiment, trading recommendations), it MUST be included
+            3. Do NOT include tickers that are only briefly mentioned without any trading analysis
+            4. Each ticker section MUST include: Timestamp, Sentiment, Resistance, Support, Target, Notes
+            5. If a ticker is mentioned but has NO technical details (no prices, no support/resistance, no targets, no sentiment), DO NOT include it
+            6. The goal is QUALITY over quantity - include all tickers with actionable trading information
+            7. IMPORTANT: "En misli" is how "NBIS" sounds in Turkish transcription - if mentioned with support/resistance, MUST include NBIS in report (NOT NVIDIA/NVDA)
+            8. IMPORTANT: "Celestica'ya da düşüş" at timestamp 4:54 is a transcription error - it's actually "Celsius'ya" (CELH) - check for different support/resistance levels (53-54, 66) vs CLS levels (297, 264, 370)
             
             **CRITICAL INDEX VS TICKER DISTINCTION:**
             - If transcript mentions "SMP 500", "S&P 500", or "S&P" - this is the S&P 500 INDEX, NOT "Standard Motor Products, Inc."
@@ -1060,19 +1451,19 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             📊 **CONCISE REPORT GENERATION:**
             - Generate MAXIMUM 2-3 page reports
             - Start with SHORT SUMMARY (2-3 sentences)
-            - Include ALL tickers mentioned in transcript (no exceptions)
-            - End with HIGH POTENTIAL TRADES (ALL high-potential tickers, no limit)
+            - Include ONLY tickers with technical analysis details (support, resistance, targets, sentiment, price levels)
+            - End with HIGH POTENTIAL TRADES (only tickers with explicit BUY/SELL/HOLD recommendations)
             - Use bullet points and clear formatting
             - Eliminate verbose explanations
             - Focus on specific price levels and trading signals
             - Prioritize immediate executable actions
             - Use direct, actionable language
             - Keep each section focused and concise
-            - **MANDATORY**: Every ticker in transcript must be covered
+            - **QUALITY FIRST**: Only include tickers with actionable trading information
             
             🔍 **REPORT STRUCTURE REQUIREMENTS:**
             - **SHORT SUMMARY**: 2-3 sentences maximum
-            - **TRADING OPPORTUNITIES**: ALL tickers mentioned in transcript (no limit)
+            - **TRADING OPPORTUNITIES**: ONLY tickers with technical analysis details (support, resistance, targets, sentiment, price levels)
             - **HIGH POTENTIAL TRADES**: ALL high-potential tickers (no limit) - MUST include company name and ticker code for each entry
             - **Eliminate**: Redundant sections, verbose explanations, generic analysis
             - **Focus on**: Specific price levels, trading signals, immediate actions
@@ -1104,11 +1495,12 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             - All market events (e.g., "CPI verileri", "bilanço sezonu")
             
             🚫 **CRITICAL REQUIREMENT**: 
-            - EVERY ticker mentioned in the transcript MUST be included in the report
-            - NO ticker can be skipped, omitted, or excluded
-            - Each ticker must have its own dedicated section
+            - Include tickers ONLY if they have technical analysis details (support, resistance, targets, sentiment, price levels, trading recommendations)
+            - Do NOT include tickers that are only briefly mentioned without trading context
+            - Each included ticker must have its own dedicated section with meaningful analysis
             - If a ticker is mentioned multiple times, consolidate all information into one section
             - **HIGH POTENTIAL TRADES SECTION MUST INCLUDE TICKER NAMES**: Every numbered entry must show "Company Name (TICKER_CODE)" format
+            - **QUALITY OVER QUANTITY**: Better to have fewer tickers with detailed analysis than many tickers with no useful information
             
             **FINAL TEMPLATE ENFORCEMENT**:
             - Use English template structure (headers, labels, format)
@@ -1188,6 +1580,10 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     self.logger.info(f"Correcting standalone ticker reference: {incorrect_ticker} -> {correct_ticker}")
                     analysis_text = re.sub(pattern3, replacement3, analysis_text, flags=re.IGNORECASE)
             
+            # NOTE: We do NOT automatically add missing tickers anymore
+            # Tickers are only included if they have technical analysis details (support, resistance, targets, sentiment, etc.)
+            # A ticker being mentioned in transcript is necessary but NOT sufficient - it needs trading context
+            
             # CRITICAL POST-PROCESSING: Replace any hallucinated company names with validated ones
             # This provides a safety net in case Gemini still makes mistakes
             if validated_ticker_map:
@@ -1265,38 +1661,56 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             
             for result in successful_results:
                 try:
-                    self.save_report(result['result'], result['url'])
+                    metadata = result.get('metadata', {})
+                    self.save_report(result['result'], result['url'], metadata)
                     self.logger.info(f"Saved report for {result['url']}")
                 except Exception as e:
                     self.logger.error(f"Failed to save report for {result['url']}: {e}")
         else:
             self.logger.warning("No successful results to save")
 
-    def save_report(self, analysis, url):
-        """Save analysis report to file"""
+    def save_report(self, analysis, url, metadata=None):
+        """Save analysis report to file with metadata"""
         try:
             # Create summary directory
             os.makedirs('summary', exist_ok=True)
             
             # Generate filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            video_id = url.split('v=')[-1].split('&')[0] if 'v=' in url else 'unknown'
+            video_id = metadata.get('video_id', 'unknown') if metadata else (url.split('v=')[-1].split('&')[0] if 'v=' in url else 'unknown')
+            
+            # Build metadata header for text report
+            metadata_header = f"Video URL: {url}\n"
+            metadata_header += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            if metadata:
+                if metadata.get('title'):
+                    metadata_header += f"Video Title: {metadata.get('title')}\n"
+                if metadata.get('channel'):
+                    metadata_header += f"Channel: {metadata.get('channel')}\n"
+                if metadata.get('upload_date'):
+                    metadata_header += f"Upload Date: {metadata.get('upload_date')}\n"
+                if metadata.get('duration'):
+                    metadata_header += f"Duration: {metadata.get('duration')}\n"
+                if metadata.get('view_count'):
+                    metadata_header += f"Views: {metadata.get('view_count'):,}\n"
+                if metadata.get('like_count'):
+                    metadata_header += f"Likes: {metadata.get('like_count'):,}\n"
+            metadata_header += f"{'='*50}\n\n"
             
             # Save text report
             txt_filename = f'summary/report_{video_id}_{timestamp}.txt'
             with open(txt_filename, 'w', encoding='utf-8') as f:
-                f.write(f"Video URL: {url}\n")
-                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"{'='*50}\n\n")
+                f.write(metadata_header)
                 f.write(analysis)
             
-            # Save JSON report
+            # Save JSON report with full metadata
             json_filename = f'summary/report_{video_id}_{timestamp}.json'
             report_data = {
                 'url': url,
                 'timestamp': timestamp,
                 'analysis': analysis,
                 'generated_at': datetime.now().isoformat(),
+                'video_metadata': metadata if metadata else {},
                 'ticker_validation': self.validate_tickers_in_analysis(analysis)
             }
             
@@ -1306,7 +1720,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             
             # Save HTML report for mobile viewing
             html_filename = f'summary/report_{video_id}_{timestamp}.html'
-            self.save_html_report(analysis, url, html_filename)
+            self.save_html_report(analysis, url, html_filename, metadata)
             
             print(f"Report saved: {txt_filename}")
             print(f"Mobile-friendly: {html_filename}")
@@ -1314,11 +1728,11 @@ The following are market indices, NOT individual stock tickers. When mentioned i
         except Exception as e:
             print(f"Failed to save report: {e}")
 
-    def save_html_report(self, analysis, url, filename):
+    def save_html_report(self, analysis, url, filename, metadata=None):
         """Save HTML report for mobile viewing"""
         try:
             # Convert markdown-style analysis to HTML
-            html_content = self.convert_analysis_to_html(analysis, url)
+            html_content = self.convert_analysis_to_html(analysis, url, metadata)
             
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(html_content)
@@ -1326,10 +1740,27 @@ The following are market indices, NOT individual stock tickers. When mentioned i
         except Exception as e:
             self.logger.error(f"Failed to save HTML report: {e}")
     
-    def convert_analysis_to_html(self, analysis, url):
+    def convert_analysis_to_html(self, analysis, url, metadata=None):
         """Convert analysis text to mobile-friendly HTML"""
         # Simple and robust HTML conversion
         html_content = self.format_analysis_html(analysis)
+        
+        # Build metadata section for header
+        metadata_html = f"<p>Video: {url}</p>"
+        if metadata:
+            if metadata.get('title'):
+                metadata_html += f"<p><strong>Title:</strong> {metadata.get('title')}</p>"
+            if metadata.get('channel'):
+                metadata_html += f"<p><strong>Channel:</strong> {metadata.get('channel')}</p>"
+            if metadata.get('upload_date'):
+                metadata_html += f"<p><strong>Upload Date:</strong> {metadata.get('upload_date')}</p>"
+            if metadata.get('duration'):
+                metadata_html += f"<p><strong>Duration:</strong> {metadata.get('duration')}</p>"
+            if metadata.get('view_count'):
+                metadata_html += f"<p><strong>Views:</strong> {metadata.get('view_count'):,}</p>"
+            if metadata.get('like_count'):
+                metadata_html += f"<p><strong>Likes:</strong> {metadata.get('like_count'):,}</p>"
+        metadata_html += f"<p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
         
         html_template = f"""<!DOCTYPE html>
 <html lang="tr">
@@ -1359,6 +1790,10 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             color: white;
             padding: 20px;
             text-align: center;
+        }}
+        .header p {{
+            margin: 5px 0;
+            font-size: 14px;
         }}
         .content {{
             padding: 20px;
@@ -1422,8 +1857,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
     <div class="container">
         <div class="header">
             <h1>📊 NASDAQ DAY & SWING TRADE REPORT</h1>
-            <p>Video: {url}</p>
-            <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            {metadata_html}
         </div>
         <div class="content">
             {html_content}

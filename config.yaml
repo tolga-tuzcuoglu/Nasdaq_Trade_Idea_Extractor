@@ -40,7 +40,11 @@ DIRECTORIES:
 TICKER_CORRECTIONS:
   # Common mispronunciations/misspellings in Turkish videos
   # Format: incorrect_ticker: correct_ticker
-  IREN: IRON      # Iron Mountain Inc.
-  ALAB: ASTR      # Astra Space Inc.
+  ASTR: ALAB      # Alabaster Therapeutics Inc. (was incorrectly identified as Astra Space)
+  IRON: IREN      # IREN Limited / Iris Energy Ltd. (was incorrectly identified as Iron Mountain)
+  CRIDO: CRDO     # Credo Technology Group Holding Ltd
   DIELO: DLO      # DLocal Limited
   COREWAVE: CRWV  # CoreWave Inc.
+  # NBIS is a valid ticker, not NVIDIA - do not correct
+  OSCR: OSCAR     # Oscar Health, Inc. (OSCR is transcription variant)
+  ASCAR: OSCAR    # Oscar Health, Inc. (ASCAR is incorrect fuzzy match, should be OSCAR)
