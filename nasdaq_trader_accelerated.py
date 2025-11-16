@@ -617,15 +617,18 @@ class AcceleratedNasdaqTrader:
         return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
     
     def _filter_high_quality_trades(self, trades: list) -> list:
-        """Filter and rank trades by quality metrics - keep all high potential ones (no limit)"""
+        """Filter and rank trades by quality metrics - keep only truly high potential ones (no limit)"""
         import re
         
         scored_trades = []
-        min_quality_score = 20  # Minimum score to be considered "high potential"
         
         for trade in trades:
             score = 0
             trade_data = {'trade': trade, 'score': 0}
+            
+            # EXCLUDE TAKE PROFIT/SELL trades - these are not "high potential" trades
+            if re.search(r':\s*TAKE\s+PROFIT|:\s*SELL\s+', trade, re.IGNORECASE):
+                continue  # Skip TAKE PROFIT/SELL trades entirely
             
             # Extract Risk/Reward ratio
             rr_match = re.search(r'Risk/Reward:\s*\*\*1:([\d.]+)\*\*', trade, re.IGNORECASE)
@@ -652,11 +655,9 @@ class AcceleratedNasdaqTrader:
                 except ValueError:
                     pass
             
-            # Check for BUY action (prefer BUY over TAKE PROFIT)
+            # Check for BUY action (prefer BUY)
             if re.search(r':\s*BUY\s+', trade, re.IGNORECASE):
                 score += 20
-            elif re.search(r':\s*TAKE\s+PROFIT', trade, re.IGNORECASE):
-                score -= 10  # Penalize TAKE PROFIT trades
             
             # Check for Target (trades with targets are more actionable)
             if re.search(r'Target:\s*\*\*', trade, re.IGNORECASE):
@@ -672,9 +673,12 @@ class AcceleratedNasdaqTrader:
             complete_data_score = sum([has_entry, has_stop, has_target, has_risk, has_rr]) * 2
             score += complete_data_score
             
-            # Penalize low Risk/Reward ratios (< 3:1) - filter out very low quality
-            if 'risk_reward' in trade_data and trade_data['risk_reward'] < 3:
-                score -= 20  # Heavy penalty for very low Risk/Reward
+            # STRICT FILTERING: Exclude trades with very low Risk/Reward ratios
+            # Only keep trades with Risk/Reward >= 15:1 (truly high potential)
+            if 'risk_reward' in trade_data:
+                if trade_data['risk_reward'] < 15:
+                    # Low Risk/Reward - exclude entirely
+                    continue  # Skip low Risk/Reward trades
             
             trade_data['score'] = score
             scored_trades.append(trade_data)
@@ -684,6 +688,7 @@ class AcceleratedNasdaqTrader:
         
         # Filter by minimum quality score - keep all trades that meet quality threshold
         # NO LIMIT on number of trades - show all high potential ones
+        min_quality_score = 50  # Very high threshold for truly exceptional trades
         filtered = [t['trade'] for t in scored_trades if t['score'] >= min_quality_score]
         
         # If no trades meet the threshold, keep at least top 5 (fallback)
@@ -698,7 +703,7 @@ class AcceleratedNasdaqTrader:
             renumbered = re.sub(r'\*\*(\d+)\.\*\*', f'**{i}.**', trade, count=1)
             renumbered_trades.append(renumbered)
         
-        self.logger.info(f"Filtered {len(trades)} trades to {len(renumbered_trades)} high-quality trades (no limit, quality threshold: {min_quality_score})")
+        self.logger.info(f"Filtered {len(trades)} trades to {len(renumbered_trades)} high-quality trades (no limit, quality threshold: {min_quality_score}, min Risk/Reward: 15:1)")
         return renumbered_trades
     
     def _create_fallback_high_potential_trades(self, analysis_text: str) -> Optional[str]:
