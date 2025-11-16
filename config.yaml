@@ -48,3 +48,6 @@ TICKER_CORRECTIONS:
   # NBIS is a valid ticker, not NVIDIA - do not correct
   OSCAR: OSCR     # Oscar Health, Inc. (OSCAR is incorrect, correct ticker is OSCR)
   ASCAR: OSCR     # Oscar Health, Inc. (ASCAR is incorrect fuzzy match, should be OSCR)
+  ABCD: IBKR      # Cambium Learning Group, Inc. (ABCD) is wrong, correct is Interactive Brokers (IBKR)
+  LIL: LLY        # Eli Lilly and Company (LIL is incorrect, correct is LLY)
+  EOS: EOSE       # Eos Energy Enterprises, Inc. (EOS is Eaton Vance, but in Turkish trading videos "EOS" usually refers to Eos Energy)
