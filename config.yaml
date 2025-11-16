@@ -46,5 +46,5 @@ TICKER_CORRECTIONS:
   DIELO: DLO      # DLocal Limited
   COREWAVE: CRWV  # CoreWave Inc.
   # NBIS is a valid ticker, not NVIDIA - do not correct
-  OSCR: OSCAR     # Oscar Health, Inc. (OSCR is transcription variant)
-  ASCAR: OSCAR    # Oscar Health, Inc. (ASCAR is incorrect fuzzy match, should be OSCAR)
+  OSCAR: OSCR     # Oscar Health, Inc. (OSCAR is incorrect, correct ticker is OSCR)
+  ASCAR: OSCR     # Oscar Health, Inc. (ASCAR is incorrect fuzzy match, should be OSCR)

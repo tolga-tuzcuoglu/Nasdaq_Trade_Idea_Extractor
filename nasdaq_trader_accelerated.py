@@ -297,6 +297,16 @@ class AcceleratedNasdaqTrader:
             (r'\bZeta\b', 'ZETA'),
             (r'\bNVIDIA\b', 'NVDA'),
             (r'\bNvidia\b', 'NVDA'),
+            (r'\bMicrosoft\b', 'MSFT'),  # Microsoft Corporation
+            (r'\bAmazon\b', 'AMZN'),  # Amazon.com Inc.
+            (r'\bGoogle\b', 'GOOG'),  # Alphabet Inc. (Google)
+            (r'\bCrowdstrike\b', 'CRWD'),  # CrowdStrike Holdings, Inc.
+            (r'\bCrowdStrike\b', 'CRWD'),  # CrowdStrike Holdings, Inc.
+            (r'\bBroadcom\b', 'AVGO'),  # Broadcom Inc.
+            (r'\bRocket\s+Lab\b', 'RKLB'),  # Rocket Lab USA, Inc.
+            (r'\bRocket\s+Lab\'e\b', 'RKLB'),  # Turkish grammar variation
+            (r'\bEOS\b', 'EOSE'),  # Eos Energy Enterprises, Inc.
+            (r'\bConstellation\s+Energy\b', 'CEG'),  # Constellation Energy Corporation
             (r'\bHims\b', 'HIMS'),  # Hims & Hers Health
             (r'\bHymsenhurst\b', 'HIMS'),  # Turkish mispronunciation of "Hims"
             (r'\bEn\s+misli\b', 'NBIS'),  # Transcription: "En misli" is how "NBIS" sounds in Turkish
