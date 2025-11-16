@@ -385,6 +385,333 @@ class AcceleratedNasdaqTrader:
         
         return consolidated_text
     
+    def _parse_price(self, price_str: str) -> Optional[float]:
+        """Parse price string to float, handling various formats"""
+        if not price_str or self._is_null_or_empty(price_str):
+            return None
+        
+        # Remove common prefixes/suffixes
+        price_str = price_str.strip()
+        price_str = price_str.replace('$', '').replace(',', '').replace('~', '').strip()
+        
+        # Handle ranges (e.g., "32.00-35.00" -> use first value)
+        if '-' in price_str and not price_str.startswith('-'):
+            price_str = price_str.split('-')[0].strip()
+        
+        # Handle ">" prefix (e.g., ">100.00" -> "100.00")
+        if price_str.startswith('>'):
+            price_str = price_str[1:].strip()
+        
+        try:
+            return float(price_str)
+        except (ValueError, AttributeError):
+            return None
+    
+    def _calculate_risk(self, entry: float, stop: float) -> Optional[str]:
+        """Calculate risk percentage from entry and stop"""
+        if entry is None or stop is None or entry <= 0:
+            return None
+        
+        try:
+            risk_pct = abs(entry - stop) / entry * 100
+            return f"{risk_pct:.1f}%"
+        except (ZeroDivisionError, ValueError):
+            return None
+    
+    def _calculate_risk_reward(self, entry: float, stop: float, target: float) -> Optional[str]:
+        """Calculate risk/reward ratio from entry, stop, and target"""
+        if entry is None or stop is None or target is None:
+            return None
+        
+        try:
+            risk = abs(entry - stop)
+            reward = abs(target - entry)
+            
+            if risk == 0:
+                return None
+            
+            ratio = reward / risk
+            return f"1:{ratio:.1f}"
+        except (ZeroDivisionError, ValueError):
+            return None
+    
+    def _extract_support_from_trading_opportunities(self, analysis_text: str, ticker: str) -> Optional[float]:
+        """Extract support level from TRADING OPPORTUNITIES section for a ticker"""
+        import re
+        
+        # Find ticker section in TRADING OPPORTUNITIES
+        ticker_pattern = rf'###\s+[^*\n(]+?\s*\({re.escape(ticker)}\)'
+        match = re.search(ticker_pattern, analysis_text, re.IGNORECASE)
+        
+        if not match:
+            return None
+        
+        # Find the section content (until next ### or ##)
+        section_start = match.end()
+        next_section = analysis_text.find('##', section_start + 1)
+        section_end = next_section if next_section != -1 else len(analysis_text)
+        section_text = analysis_text[section_start:section_end]
+        
+        # Extract support value
+        support_match = re.search(r'- \*\*Support\*\*:\s*([^\n]+)', section_text, re.IGNORECASE)
+        if support_match:
+            support_str = support_match.group(1).strip()
+            # Extract first numeric value from support string
+            price_match = re.search(r'\$?([\d,]+\.?\d*)', support_str)
+            if price_match:
+                return self._parse_price(price_match.group(1))
+        
+        return None
+    
+    def _enhance_high_potential_trades(self, analysis_text: str) -> str:
+        """Post-process HIGH POTENTIAL TRADES section to calculate missing values and ensure trades are shown"""
+        import re
+        
+        # Find HIGH POTENTIAL TRADES section
+        hpt_pattern = r'##\s*🎯\s*HIGH\s+POTENTIAL\s+TRADES'
+        hpt_match = re.search(hpt_pattern, analysis_text, re.IGNORECASE)
+        
+        if not hpt_match:
+            # No HIGH POTENTIAL TRADES section - create fallback from TRADING OPPORTUNITIES
+            self.logger.info("No HIGH POTENTIAL TRADES section found, creating fallback from TRADING OPPORTUNITIES")
+            fallback_section = self._create_fallback_high_potential_trades(analysis_text)
+            if fallback_section:
+                # Append fallback section before end of report
+                return analysis_text.rstrip() + "\n\n" + fallback_section
+            return analysis_text
+        
+        section_start = hpt_match.start()
+        
+        # Find end of section (next ## header or end of text)
+        next_section = analysis_text.find('##', section_start + 1)
+        section_end = next_section if next_section != -1 else len(analysis_text)
+        
+        section_text = analysis_text[section_start:section_end]
+        
+        # Check if section has generic message (no trades)
+        if re.search(r'belirtilen işlem fikirleri için net giriş|net giriş.*stop.*risk.*verilmemiş|spesifik alım.*satım emirleri', section_text, re.IGNORECASE):
+            # Generic message found - replace with fallback
+            self.logger.info("HIGH POTENTIAL TRADES section has generic message, creating fallback from TRADING OPPORTUNITIES")
+            enhanced_section = self._create_fallback_high_potential_trades(analysis_text)
+            if enhanced_section:
+                return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
+            return analysis_text
+        
+        # Parse existing trades - handle both numbered and unnumbered formats
+        trade_pattern = r'\*\*(\d+)\.\*\*\s*\*\*([^*\n(]+?)\s*\(([A-Z0-9]+)\)\*\*:\s*([A-Z/\s]+)\s*-?\s*(.*?)(?=\*\*\d+\.\*\*|\*\*[A-Z]|$)'
+        trades = list(re.finditer(trade_pattern, section_text, re.IGNORECASE | re.DOTALL))
+        
+        # Also try unnumbered format
+        if not trades:
+            trade_pattern = r'\*\*([^*\n(]+?)\s*\(([A-Z0-9]+)\)\*\*:\s*([A-Z/\s]+)\s*-?\s*(.*?)(?=\*\*[A-Z]|$)'
+            trades = list(re.finditer(trade_pattern, section_text, re.IGNORECASE | re.DOTALL))
+        
+        enhanced_trades = []
+        trade_count = 0
+        
+        for trade_match in trades:
+            trade_count += 1
+            
+            # Handle both numbered and unnumbered formats
+            if len(trade_match.groups()) == 5:
+                number = trade_match.group(1)
+                company_name = trade_match.group(2).strip()
+                ticker = trade_match.group(3).upper()
+                action = trade_match.group(4).strip()
+                trade_content = trade_match.group(5)
+            else:
+                number = str(trade_count)
+                company_name = trade_match.group(1).strip()
+                ticker = trade_match.group(2).upper()
+                action = trade_match.group(3).strip()
+                trade_content = trade_match.group(4)
+            
+            # Extract Entry, Stop, Target, Risk, Risk/Reward
+            entry_match = re.search(r'Entry:\s*\*\*([^*]+)\*\*', trade_content, re.IGNORECASE)
+            stop_match = re.search(r'Stop:\s*\*\*([^*]+)\*\*', trade_content, re.IGNORECASE)
+            target_match = re.search(r'Target:\s*\*\*([^*]+)\*\*', trade_content, re.IGNORECASE)
+            risk_match = re.search(r'Risk:\s*\*\*([^*]+)\*\*', trade_content, re.IGNORECASE)
+            risk_reward_match = re.search(r'Risk/Reward:\s*\*\*([^*]+)\*\*', trade_content, re.IGNORECASE)
+            
+            entry_str = entry_match.group(1).strip() if entry_match else None
+            stop_str = stop_match.group(1).strip() if stop_match else None
+            target_str = target_match.group(1).strip() if target_match else None
+            risk_str = risk_match.group(1).strip() if risk_match else None
+            risk_reward_str = risk_reward_match.group(1).strip() if risk_reward_match else None
+            
+            # Parse prices
+            entry = self._parse_price(entry_str) if entry_str else None
+            stop = self._parse_price(stop_str) if stop_str else None
+            target = self._parse_price(target_str) if target_str else None
+            
+            # Enhance missing values
+            # 1. If Entry missing but Support exists in TRADING OPPORTUNITIES, infer Entry
+            if entry is None:
+                support = self._extract_support_from_trading_opportunities(analysis_text, ticker)
+                if support is not None:
+                    entry = support
+                    entry_str = f"${entry:.2f}"
+                    self.logger.info(f"Inferred Entry ${entry:.2f} from Support for {ticker}")
+            
+            # 2. If Stop missing but Entry exists, calculate Stop (2% below Entry)
+            if stop is None and entry is not None:
+                stop = entry * 0.98  # 2% buffer
+                stop_str = f"${stop:.2f}"
+                self.logger.info(f"Calculated Stop ${stop:.2f} (2% below Entry) for {ticker}")
+            
+            # 3. If Risk missing but Entry/Stop exist, calculate Risk
+            if risk_str is None and entry is not None and stop is not None:
+                risk_str = self._calculate_risk(entry, stop)
+                if risk_str:
+                    self.logger.info(f"Calculated Risk {risk_str} for {ticker}")
+            
+            # 4. If Risk/Reward missing but Entry/Stop/Target exist, calculate Risk/Reward
+            if risk_reward_str is None and entry is not None and stop is not None and target is not None:
+                risk_reward_str = self._calculate_risk_reward(entry, stop, target)
+                if risk_reward_str:
+                    self.logger.info(f"Calculated Risk/Reward {risk_reward_str} for {ticker}")
+            
+            # Build enhanced trade line
+            action_parts = []
+            if entry_str:
+                action_parts.append(f"Entry: **{entry_str}**")
+            if stop_str:
+                action_parts.append(f"Stop: **{stop_str}**")
+            if target_str:
+                action_parts.append(f"Target: **{target_str}**")
+            if risk_str:
+                action_parts.append(f"Risk: **{risk_str}**")
+            if risk_reward_str:
+                action_parts.append(f"Risk/Reward: **{risk_reward_str}**")
+            
+            action_line = " - ".join([f"[{p}]" for p in action_parts]) if action_parts else ""
+            
+            # Extract reason
+            reason_match = re.search(r'\*\[Reason:\s*([^\]]+)\]', trade_content, re.IGNORECASE)
+            reason = reason_match.group(1).strip() if reason_match else ""
+            
+            # Build enhanced trade
+            enhanced_trade = f"**{number}.** **{company_name} ({ticker})**: {action} {action_line}"
+            if reason:
+                enhanced_trade += f"\n   *[Reason: {reason}]*"
+            
+            enhanced_trades.append(enhanced_trade)
+        
+        # If no trades found in section, create fallback
+        if trade_count == 0:
+            self.logger.info("No trades found in HIGH POTENTIAL TRADES section, creating fallback")
+            enhanced_section = self._create_fallback_high_potential_trades(analysis_text)
+            if enhanced_section:
+                return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
+            return analysis_text
+        
+        # Rebuild section with enhanced trades
+        enhanced_section = "## 🎯 HIGH POTENTIAL TRADES\n\n"
+        enhanced_section += "\n\n".join(enhanced_trades)
+        enhanced_section += "\n"
+        
+        # Replace original section
+        return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
+    
+    def _create_fallback_high_potential_trades(self, analysis_text: str) -> Optional[str]:
+        """Create HIGH POTENTIAL TRADES section from TRADING OPPORTUNITIES when LLM didn't generate any"""
+        import re
+        
+        # Find TRADING OPPORTUNITIES section
+        to_pattern = r'##\s*📈\s*TRADING\s+OPPORTUNITIES'
+        to_match = re.search(to_pattern, analysis_text, re.IGNORECASE)
+        
+        if not to_match:
+            return None
+        
+        # Find all ticker sections with BUY/Bullish sentiment and Support/Target
+        ticker_pattern = r'###\s+([^*\n(]+?)\s*\(([A-Z0-9]+)\)'
+        ticker_matches = list(re.finditer(ticker_pattern, analysis_text[to_match.end():], re.IGNORECASE))
+        
+        potential_trades = []
+        
+        for match in ticker_matches[:10]:  # Limit to top 10
+            ticker_start = to_match.end() + match.start()
+            ticker_end = to_match.end() + match.end()
+            
+            # Find section content
+            next_ticker = analysis_text.find('###', ticker_end + 1)
+            next_section = analysis_text.find('##', ticker_end + 1)
+            section_end = min(next_ticker, next_section) if next_ticker != -1 and next_section != -1 else (next_ticker if next_ticker != -1 else (next_section if next_section != -1 else len(analysis_text)))
+            section_text = analysis_text[ticker_end:section_end]
+            
+            company_name = match.group(1).strip()
+            ticker = match.group(2).upper()
+            
+            # Extract sentiment
+            sentiment_match = re.search(r'- \*\*Sentiment\*\*:\s*([^\n]+)', section_text, re.IGNORECASE)
+            sentiment = sentiment_match.group(1).strip() if sentiment_match else ""
+            
+            # Only include BUY/Bullish trades
+            if not re.search(r'BUY|Bullish|Boğa|buy|bullish', sentiment, re.IGNORECASE):
+                continue
+            
+            # Extract Support and Target
+            support_match = re.search(r'- \*\*Support\*\*:\s*([^\n]+)', section_text, re.IGNORECASE)
+            target_match = re.search(r'- \*\*Target\*\*:\s*([^\n]+)', section_text, re.IGNORECASE)
+            
+            support_str = support_match.group(1).strip() if support_match else None
+            target_str = target_match.group(1).strip() if target_match else None
+            
+            if not support_str or self._is_null_or_empty(support_str):
+                continue
+            
+            # Parse prices
+            support_price = self._parse_price(support_str)
+            target_price = self._parse_price(target_str) if target_str else None
+            
+            if support_price is None:
+                continue
+            
+            # Use Support as Entry
+            entry = support_price
+            stop = entry * 0.98  # 2% buffer
+            risk_str = self._calculate_risk(entry, stop)
+            risk_reward_str = self._calculate_risk_reward(entry, stop, target_price) if target_price else None
+            
+            # Build trade
+            action_parts = [f"Entry: **${entry:.2f}**", f"Stop: **${stop:.2f}**"]
+            if target_price:
+                action_parts.append(f"Target: **${target_price:.2f}**")
+            if risk_str:
+                action_parts.append(f"Risk: **{risk_str}**")
+            if risk_reward_str:
+                action_parts.append(f"Risk/Reward: **{risk_reward_str}**")
+            
+            action_line = " - ".join([f"[{p}]" for p in action_parts])
+            
+            # Extract notes for reason
+            notes_match = re.search(r'- \*\*Notes\*\*:\s*([^\n]+(?:\n(?!- \*\*|###|##)[^\n]+)*)', section_text, re.MULTILINE)
+            reason = notes_match.group(1).strip()[:200] if notes_match else sentiment[:200]
+            
+            potential_trades.append({
+                'number': len(potential_trades) + 1,
+                'company_name': company_name,
+                'ticker': ticker,
+                'action': 'BUY',
+                'action_line': action_line,
+                'reason': reason
+            })
+        
+        if not potential_trades:
+            return None
+        
+        # Build section
+        enhanced_section = "## 🎯 HIGH POTENTIAL TRADES\n\n"
+        for trade in potential_trades:
+            enhanced_section += f"**{trade['number']}.** **{trade['company_name']} ({trade['ticker']})**: {trade['action']} {trade['action_line']}\n"
+            if trade['reason']:
+                enhanced_section += f"   *[Reason: {trade['reason']}]*\n"
+            enhanced_section += "\n"
+        
+        self.logger.info(f"Created fallback HIGH POTENTIAL TRADES section with {len(potential_trades)} trades")
+        return enhanced_section
+    
     def validate_tickers_in_analysis(self, analysis_text: str) -> Dict[str, Any]:
         """
         Extract and validate tickers from analysis text
@@ -1645,16 +1972,28 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             - Content can be in Turkish (reasoning, descriptions, explanations)
             - Use "Reason:" as label but Turkish content for reasoning
             
-            **1.** **[COMPANY_NAME] ([TICKER_CODE])**: [BUY/SELL/HOLD] - [Entry: **$X.XX**] [Stop: **$X.XX**] [Target: **$X.XX**] [Risk: **X%**] [Risk/Reward: **1:X**]
+            **CRITICAL ENTRY/STOP/TARGET INFERENCE RULES:**
+            1. If speaker says "buy at support $550" → Entry = $550.00
+            2. If speaker says "buy on pullback to $550" → Entry = $550.00
+            3. If Support is $550 and speaker recommends buying → Entry = $550.00 (use Support as Entry)
+            4. If Entry exists but Stop missing → Calculate Stop = Entry * 0.98 (2% buffer below Entry)
+            5. If Entry/Stop exist → Calculate Risk = abs(Entry - Stop) / Entry * 100 (format: "X.X%")
+            6. If Entry/Stop/Target exist → Calculate Risk/Reward = abs(Target - Entry) / abs(Entry - Stop) (format: "1:X.X")
+            7. ALWAYS include Entry, Stop, Target, Risk, and Risk/Reward for every trade
+            8. Use EXACT prices from transcript (no ~ approximations, no ranges - use first value if range given)
+            
+            **1.** **[COMPANY_NAME] ([TICKER_CODE])**: [BUY/SELL/HOLD] - [Entry: **$X.XX**] [Stop: **$X.XX**] [Target: **$X.XX**] [Risk: **X.X%**] [Risk/Reward: **1:X.X**]
                *[Reason: En yüksek kar potansiyeli - acil fırsat]*
             
-            **2.** **[COMPANY_NAME] ([TICKER_CODE])**: [BUY/SELL/HOLD] - [Entry: **$X.XX**] [Stop: **$X.XX**] [Target: **$X.XX**] [Risk: **X%**] [Risk/Reward: **1:X**]
+            **2.** **[COMPANY_NAME] ([TICKER_CODE])**: [BUY/SELL/HOLD] - [Entry: **$X.XX**] [Stop: **$X.XX**] [Target: **$X.XX**] [Risk: **X.X%**] [Risk/Reward: **1:X.X**]
                *[Reason: Yüksek kar potansiyeli - teknik kırılım]*
             
             **3.** **[COMPANY_NAME] ([TICKER_CODE])**: [TAKE PROFIT/EXIT] - [Current: **$X.XX**] [Take Profit: **$X.XX**] [Stop: **$X.XX**] [Timing: Immediate]
                *[Reason: Risk yönetimi - zarar kaçınma önceliği]*
             
             [CONTINUE FOR ALL HIGH POTENTIAL TICKERS - NO LIMIT ON NUMBER]
+            
+            **CRITICAL**: You MUST include at least 3-10 high potential trades. If a ticker has Support/Target and BUY sentiment, it MUST be included in HIGH POTENTIAL TRADES with complete Entry/Stop/Target/Risk/Risk-Reward.
             
             **CRITICAL FORMAT REQUIREMENT**: In HIGH POTENTIAL TRADES section, ALWAYS use format: **Company Name (TICKER_CODE)** - NEVER use just ticker codes without company names
             
@@ -1964,6 +2303,12 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # CRITICAL POST-PROCESSING: Consolidate duplicate tickers
             # Even if LLM follows instructions, enforce consolidation as safety net
             analysis_text = self._consolidate_duplicate_tickers(analysis_text)
+            
+            # CRITICAL POST-PROCESSING: Enhance HIGH POTENTIAL TRADES section
+            # Calculate missing Stop, Risk, Risk/Reward from Entry/Stop/Target
+            # Infer Entry from Support when missing
+            # Ensure at least some trades are shown (never 0 trades)
+            analysis_text = self._enhance_high_potential_trades(analysis_text)
             
             # Validate tickers in the generated analysis (for internal use only)
             validation_results = self.validate_tickers_in_analysis(analysis_text)
