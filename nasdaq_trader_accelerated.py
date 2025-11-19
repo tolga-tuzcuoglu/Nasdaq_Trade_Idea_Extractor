@@ -1979,7 +1979,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             As an experienced Nasdaq portfolio manager, analyze this trading video transcript and create a professional trading report in English.
             
             **CRITICAL TEMPLATE REQUIREMENT**: 
-            - Use standard English section headers: "REPORT INFORMATION", "SHORT SUMMARY", "TRADING OPPORTUNITIES", "HIGH POTENTIAL TRADES"
+            - Use standard English section headers: "SHORT SUMMARY", "TRADING OPPORTUNITIES", "HIGH POTENTIAL TRADES"
             - Keep template structure in English (headers, labels, format)
             - Content can be in Turkish (analysis, reasoning, descriptions, notes)
             - Use English field labels: "Timestamp:", "Sentiment:", "Resistance:", "Support:", "Target:", "Notes:"
@@ -2012,13 +2012,6 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             - Keep each section focused and concise
             - Use direct, actionable language
             - Focus on specific price levels and trading signals
-            
-            ## 📊 REPORT INFORMATION
-            - **Source**: {video_title} - {channel_name}
-            {report_info_str}
-            - **Video Date (from transcript)**: [Date mentioned in video - ONLY use dates mentioned in video, add year if not specified]
-            
-            **ÖNEMLİ TARİH KURALI**: Eğer video sadece "16 Eylül" diyorsa, "16 Eylül" yazın. "16 Eylül 2024" YAZMAYIN çünkü yıl belirtilmemiş.
             
             ## 📝 SHORT SUMMARY
             {summary_metadata_str + "\n            " if summary_metadata_str else ""}[Brief summary of video content - 2-3 sentences covering main message and trading opportunities]
@@ -2467,19 +2460,13 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # Build metadata header for text report
             metadata_header = f"Video URL: {url}\n"
             metadata_header += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            if metadata:
-                if metadata.get('title'):
-                    metadata_header += f"Video Title: {metadata.get('title')}\n"
-                if metadata.get('channel'):
-                    metadata_header += f"Channel: {metadata.get('channel')}\n"
-                if metadata.get('upload_date'):
-                    metadata_header += f"Upload Date: {metadata.get('upload_date')}\n"
-                if metadata.get('duration'):
-                    metadata_header += f"Duration: {metadata.get('duration')}\n"
-                if metadata.get('view_count'):
-                    metadata_header += f"Views: {metadata.get('view_count'):,}\n"
-                if metadata.get('like_count'):
-                    metadata_header += f"Likes: {metadata.get('like_count'):,}\n"
+            # Always show Video Title, Channel, and Upload Date
+            video_title = metadata.get('title', 'Unknown') if metadata else 'Unknown'
+            channel = metadata.get('channel', 'Unknown') if metadata else 'Unknown'
+            upload_date = metadata.get('upload_date', 'Unknown') if metadata else 'Unknown'
+            metadata_header += f"Video Title: {video_title}\n"
+            metadata_header += f"Channel: {channel}\n"
+            metadata_header += f"Upload Date: {upload_date}\n"
             metadata_header += f"{'='*50}\n\n"
             
             # Save text report
