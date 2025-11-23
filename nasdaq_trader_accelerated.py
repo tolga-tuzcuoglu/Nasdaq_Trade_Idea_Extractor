@@ -1418,8 +1418,8 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                 
                 # Still fetch metadata from YouTube even for cached files
                 try:
-                    from yt_dlp import YoutubeDL
                     # Get YouTube authentication settings from config
+                    # Note: YoutubeDL is imported at module level
                     auth_config = self.config.get('YOUTUBE_AUTHENTICATION', {})
                     enable_browser_cookies = auth_config.get('ENABLE_BROWSER_COOKIES', False)
                     preferred_browsers = auth_config.get('PREFERRED_BROWSERS', ['chrome', 'firefox', 'edge', 'safari'])
