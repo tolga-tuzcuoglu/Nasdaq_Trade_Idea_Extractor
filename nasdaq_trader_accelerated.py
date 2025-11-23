@@ -1481,21 +1481,30 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                         }
                         
                         self.logger.info(f"Fetched metadata for cached video - Title: '{video_metadata['title']}', Channel: '{video_metadata['channel']}'")
+                        
+                        # If we got valid metadata, return it
+                        if video_metadata['title'] != 'Unknown Title' and video_metadata['channel'] != 'Unknown Channel':
+                            return existing_file, video_metadata
                 except Exception as e:
-                    # If metadata fetch fails, use minimal metadata
-                    self.logger.warning(f"Failed to fetch metadata for cached video: {e}")
-                    video_metadata = {
-                        'video_id': video_id,
-                        'title': 'Unknown Title',
-                        'channel': 'Unknown Channel',
-                        'upload_date': None,
-                        'view_count': None,
-                        'like_count': None,
-                        'duration': None,
-                        'duration_seconds': None,
-                        'description': None,
-                        'url': url
-                    }
+                    # If metadata fetch fails, log the error and try alternative method
+                    self.logger.warning(f"Failed to fetch metadata for cached video with yt-dlp: {e}")
+                    # Try using YouTube API or other method if available
+                    # For now, we'll use minimal metadata but log that we tried
+                    self.logger.info("Using fallback metadata for cached video")
+                
+                # Fallback: use minimal metadata
+                video_metadata = {
+                    'video_id': video_id,
+                    'title': 'Unknown Title',
+                    'channel': 'Unknown Channel',
+                    'upload_date': None,
+                    'view_count': None,
+                    'like_count': None,
+                    'duration': None,
+                    'duration_seconds': None,
+                    'description': None,
+                    'url': url
+                }
                 
                 return existing_file, video_metadata
             
@@ -2436,7 +2445,12 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                         self.logger.info(f"Validated corrected ticker {correct_ticker} -> {validated_company_name}")
                 
                 # Use validated company name if available, otherwise use the correct ticker
-                final_company_name = validated_company_name if validated_company_name and validated_company_name != correct_ticker else correct_ticker
+                # Special case: MSTR should use "MicroStrategy Inc." even if Yahoo Finance shows "Strategy Inc"
+                if correct_ticker == 'MSTR' and validated_company_name == 'Strategy Inc':
+                    final_company_name = 'MicroStrategy Inc.'
+                    self.logger.info(f"Using preferred company name for MSTR: MicroStrategy Inc. (instead of {validated_company_name})")
+                else:
+                    final_company_name = validated_company_name if validated_company_name and validated_company_name != correct_ticker else correct_ticker
                 
                 # Pattern 0: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (CORRECT_TICKER)"
                 # This handles cases like "### ASTR (ALAB)" -> "### Astera Labs Inc. (ALAB)"
@@ -2479,6 +2493,28 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # NOTE: We do NOT automatically add missing tickers anymore
             # Tickers are only included if they have technical analysis details (support, resistance, targets, sentiment, etc.)
             # A ticker being mentioned in transcript is necessary but NOT sufficient - it needs trading context
+            
+            # CRITICAL POST-PROCESSING: Remove false positive tickers from report
+            false_positives_to_remove = {'APPLEOVEN', 'IMSANHORSE', 'SOFAY', 'OVEN', 'DIP'}
+            for false_positive in false_positives_to_remove:
+                # Remove entire sections with false positive tickers (more comprehensive pattern)
+                # Pattern 1: "### Unknown Company (FALSE_POSITIVE)" followed by content until next ### or end
+                pattern_false = rf'###\s+Unknown Company\s*\({re.escape(false_positive)}\)[\s\S]*?(?=\n###|\Z)'
+                if re.search(pattern_false, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing false positive ticker section: Unknown Company ({false_positive})")
+                    analysis_text = re.sub(pattern_false, '', analysis_text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+                # Pattern 2: Any section header with false positive ticker
+                pattern_false2 = rf'###\s+.*?\({re.escape(false_positive)}\)[\s\S]*?(?=\n###|\Z)'
+                if re.search(pattern_false2, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing false positive ticker section containing ({false_positive})")
+                    analysis_text = re.sub(pattern_false2, '', analysis_text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+            
+            # CRITICAL POST-PROCESSING: Fix "Company Name (TICKER) - Unknown Company" format
+            # Remove the "- Unknown Company" suffix that shouldn't be there
+            pattern_unknown_suffix = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*Unknown Company'
+            if re.search(pattern_unknown_suffix, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing '- Unknown Company' suffix from company names")
+                analysis_text = re.sub(pattern_unknown_suffix, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Replace any hallucinated company names with validated ones
             # This provides a safety net in case Gemini still makes mistakes
