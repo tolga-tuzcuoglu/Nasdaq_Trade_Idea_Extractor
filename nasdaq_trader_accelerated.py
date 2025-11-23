@@ -947,7 +947,7 @@ class AcceleratedNasdaqTrader:
             'ONUN', 'ORADA', 'UZUN', 'YANI', 'YINE', 'ZAMAN', 'ZATEN', 'VAR', 'BIR', 'BU', 'VE', 'YA', 'DA',
             'DE', 'KI', 'ILK', 'SON', 'DAHA', 'BIR', 'BIRAZ', 'BUNDA', 'ONDA', 'ONUN', 'ORADA', 'HATTA',
             # False positive tickers that are not valid
-            'DIP', 'IMSANHORSE', 'SOFAY', 'OVEN'  # These are invalid tickers and should be filtered
+            'DIP', 'IMSANHORSE', 'SOFAY', 'OVEN', 'APPLEOVEN', 'APPLE OVEN', 'AASI'  # These are invalid tickers and should be filtered
             # Note: ACPLE is NOT in false_positives - it will be corrected to AAPL via ticker_corrections
         }
         
@@ -2495,7 +2495,11 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # A ticker being mentioned in transcript is necessary but NOT sufficient - it needs trading context
             
             # CRITICAL POST-PROCESSING: Remove false positive tickers from report
-            false_positives_to_remove = {'APPLEOVEN', 'IMSANHORSE', 'SOFAY', 'OVEN', 'DIP'}
+            false_positives_to_remove = {
+                'APPLEOVEN', 'APPLE OVEN', 'APPLEOVEN',  # Handle both with and without space
+                'IMSANHORSE', 'SOFAY', 'OVEN', 'DIP',
+                'AASI'  # AASI appears to be a false positive
+            }
             for false_positive in false_positives_to_remove:
                 # Remove entire sections with false positive tickers (more comprehensive pattern)
                 # Pattern 1: "### Unknown Company (FALSE_POSITIVE)" followed by content until next ### or end
@@ -2508,13 +2512,24 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 if re.search(pattern_false2, analysis_text, re.IGNORECASE):
                     self.logger.info(f"Removing false positive ticker section containing ({false_positive})")
                     analysis_text = re.sub(pattern_false2, '', analysis_text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+                # Pattern 3: Handle Turkish "Bilinmeyen Şirket" (Unknown Company)
+                pattern_false_tr = rf'###\s+.*?\({re.escape(false_positive)}\)\s*-\s*Bilinmeyen Şirket[\s\S]*?(?=\n###|\Z)'
+                if re.search(pattern_false_tr, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing false positive ticker section (Turkish): ({false_positive}) - Bilinmeyen Şirket")
+                    analysis_text = re.sub(pattern_false_tr, '', analysis_text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
             
             # CRITICAL POST-PROCESSING: Fix "Company Name (TICKER) - Unknown Company" format
-            # Remove the "- Unknown Company" suffix that shouldn't be there
-            pattern_unknown_suffix = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*Unknown Company'
-            if re.search(pattern_unknown_suffix, analysis_text, re.IGNORECASE):
+            # Remove the "- Unknown Company" suffix (English and Turkish versions)
+            pattern_unknown_suffix_en = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*Unknown Company'
+            if re.search(pattern_unknown_suffix_en, analysis_text, re.IGNORECASE):
                 self.logger.info("Removing '- Unknown Company' suffix from company names")
-                analysis_text = re.sub(pattern_unknown_suffix, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
+                analysis_text = re.sub(pattern_unknown_suffix_en, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
+            
+            # Remove Turkish "Bilinmeyen Şirket" suffix
+            pattern_unknown_suffix_tr = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*Bilinmeyen Şirket'
+            if re.search(pattern_unknown_suffix_tr, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing '- Bilinmeyen Şirket' suffix from company names")
+                analysis_text = re.sub(pattern_unknown_suffix_tr, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Replace any hallucinated company names with validated ones
             # This provides a safety net in case Gemini still makes mistakes
