@@ -13,6 +13,9 @@ This production-ready system is specifically designed for **Nasdaq investors and
 - **24-Hour Caching**: Intelligent caching system reduces API calls by 90%
 - **Fallback Mechanisms**: Multiple validation methods for reliability
 - **Data Quality**: Ensures all tickers are valid and tradeable
+- **Ticker Corrections**: Automatic correction of mispronounced/misspelled tickers (e.g., IRIS→IREN, ASDR→MSTR, ASTR→ALAB)
+- **False Positive Filtering**: Filters out Turkish common words and invalid tickers to prevent false matches
+- **Numeric Filtering**: Automatically filters out purely numeric strings that aren't valid tickers
 
 ### 📱 **Mobile-Friendly HTML Reports**
 - **Browser-Ready**: Professional HTML reports for web viewing
@@ -32,7 +35,10 @@ This production-ready system is specifically designed for **Nasdaq investors and
 Nasdaq_Trader_Local/
 ├── 🏃 run_pipeline.py                   # Main execution script
 ├── ⚡ nasdaq_trader_accelerated.py       # Core engine (library)
+├── 📊 report_generator.py               # Two-step report generation (extract + format)
 ├── 🔍 ticker_validator.py               # Ticker validation utility
+├── 🔒 security_check.py                 # Security scanning utility
+├── 🔒 pre-commit-hook.py                # Pre-commit security hook
 ├── 📋 video_list.txt                    # Input: YouTube video URLs
 ├── 🍪 cookies.txt                       # YouTube authentication (optional, for members-only videos)
 ├── 📁 video_cache/                       # Cached audio files (with dates)
@@ -68,6 +74,16 @@ python run_pipeline.py
 - **Use Case**: Used by run_pipeline.py
 - **Output**: Core functionality (not run directly)
 
+#### `report_generator.py` ⭐ **REPORT GENERATION**
+- **Purpose**: Two-step report generation system
+- **Features**: 
+  - Step 1: Extract structured data from transcript (JSON)
+  - Step 2: Format structured data into final report
+  - Ticker validation integration
+  - Consistent report formatting
+- **Use Case**: Generates professional trading reports from transcripts
+- **Output**: Formatted markdown reports ready for HTML conversion
+
 ### **Utility Files**
 
 #### `ticker_validator.py` ⭐ **NEW**
@@ -78,8 +94,13 @@ python run_pipeline.py
 
 #### `config.yaml`
 - **Purpose**: Configuration settings for the pipeline
-- **Features**: Model settings, processing parameters, optimization options
-- **Use Case**: Customizing analysis parameters
+- **Features**: 
+  - Model settings (Whisper, Gemini)
+  - Processing parameters and optimization options
+  - **Ticker Corrections**: Map incorrect tickers to correct ones (e.g., `IRIS: IREN`, `ASDR: MSTR`)
+  - YouTube authentication settings
+  - API optimization settings
+- **Use Case**: Customizing analysis parameters and ticker corrections
 
 ### **Data Files**
 
@@ -114,15 +135,29 @@ python run_pipeline.py
 The system generates comprehensive trading reports with:
 
 ### **📊 Report Structure**
-- **Video Information**: Date, URL, title, channel
-- **Executive Summary**: Key opportunities and market outlook
-- **Actionable Trade Ideas**: Day trading, swing trading, long-term investments
-- **Validated Tickers**: Stocks, cryptocurrencies, commodities
-- **Technical Analysis**: Support/resistance, chart patterns, key levels
-- **Market Sentiment**: Catalysts, risks, outlook
-- **Timing & Duration**: Immediate, short-term, medium-term actions
-- **Portfolio Implications**: Position sizing, risk management, diversification
-- **Trading Checklist**: Actionable items for execution
+The system generates reports with the following sections:
+
+1. **📊 REPORT INFORMATION**
+   - Video source, title, channel
+   - Video date (if mentioned in transcript)
+
+2. **📝 SHORT SUMMARY**
+   - Video upload date and duration
+   - 2-3 sentence summary of key trading insights from the video
+
+3. **📈 TRADING OPPORTUNITIES**
+   - Detailed analysis for each ticker mentioned
+   - Timestamp when ticker was first mentioned
+   - Sentiment (Bullish/Bearish/Neutral) with reasoning
+   - Support and resistance levels
+   - Target prices
+   - Technical analysis notes
+
+4. **🎯 HIGH POTENTIAL TRADES** (when applicable)
+   - Tickers with explicit BUY/SELL recommendations
+   - Entry prices, stop losses, targets
+   - Risk/reward ratios
+   - Complete trading setup information
 
 ### **🛡️ Anti-Hallucination Measures**
 - **Strict Source Validation**: Only uses information from video transcripts
@@ -131,11 +166,15 @@ The system generates comprehensive trading reports with:
 - **Price Verification**: Only includes prices explicitly mentioned
 - **Fact-Based Analysis**: No external information or assumptions
 - **Source Attribution**: All information traced back to video content
+- **Ticker Corrections**: Automatically corrects mispronounced tickers using configurable mappings
+- **False Positive Filtering**: Filters out Turkish common words and invalid ticker patterns
+- **Numeric Filtering**: Prevents numeric strings from being treated as tickers
 
 ### **📱 Report Formats**
-- **Text Reports**: Clean, professional trading analysis
-- **JSON Data**: Structured data for programmatic access
+- **Text Reports**: Clean, professional trading analysis in markdown format
+- **JSON Data**: Structured data for programmatic access (includes all extracted ticker information)
 - **HTML Reports**: Mobile-friendly, browser-ready reports with professional styling
+  - **Note**: Reports include video upload date and duration, but exclude Views and Likes counts
 
 ## ⚙️ Configuration
 
