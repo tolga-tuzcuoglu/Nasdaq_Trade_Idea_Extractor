@@ -673,12 +673,18 @@ class AcceleratedNasdaqTrader:
             complete_data_score = sum([has_entry, has_stop, has_target, has_risk, has_rr]) * 2
             score += complete_data_score
             
-            # STRICT FILTERING: Exclude trades with very low Risk/Reward ratios
-            # Only keep trades with Risk/Reward >= 15:1 (truly high potential)
+            # Score trades with Risk/Reward - prefer higher ratios but don't exclude low ones entirely
+            # Only exclude trades with very low Risk/Reward (< 2:1) if Risk/Reward is explicitly provided
             if 'risk_reward' in trade_data:
-                if trade_data['risk_reward'] < 15:
-                    # Low Risk/Reward - exclude entirely
-                    continue  # Skip low Risk/Reward trades
+                if trade_data['risk_reward'] < 2:
+                    # Very low Risk/Reward (< 2:1) - exclude entirely
+                    continue  # Skip very low Risk/Reward trades
+                elif trade_data['risk_reward'] < 5:
+                    # Low Risk/Reward (2-5:1) - reduce score but don't exclude
+                    score -= 10
+                elif trade_data['risk_reward'] >= 15:
+                    # High Risk/Reward (>= 15:1) - bonus points
+                    score += 20
             
             trade_data['score'] = score
             scored_trades.append(trade_data)
@@ -686,15 +692,21 @@ class AcceleratedNasdaqTrader:
         # Sort by score (highest first)
         scored_trades.sort(key=lambda x: x['score'], reverse=True)
         
-        # Filter by minimum quality score - keep all trades that meet quality threshold
-        # NO LIMIT on number of trades - show all high potential ones
-        min_quality_score = 50  # Very high threshold for truly exceptional trades
+        # Filter by minimum quality score - more reasonable threshold
+        # Prefer trades with complete data but don't exclude all trades
+        min_quality_score = 20  # Reasonable threshold - trades with Entry/Stop/Target and BUY action
         filtered = [t['trade'] for t in scored_trades if t['score'] >= min_quality_score]
         
-        # If no trades meet the threshold, keep at least top 5 (fallback)
+        # If no trades meet the threshold, keep at least top 5-10 (fallback)
         if not filtered and scored_trades:
-            filtered = [t['trade'] for t in scored_trades[:5]]
-            self.logger.info(f"No trades met quality threshold ({min_quality_score}), keeping top 5")
+            # Keep top trades (up to 10) even if they don't meet strict threshold
+            filtered = [t['trade'] for t in scored_trades[:10]]
+            self.logger.info(f"No trades met quality threshold ({min_quality_score}), keeping top {len(filtered)} trades")
+        
+        # If still no trades, keep all scored trades (better than empty section)
+        if not filtered and scored_trades:
+            filtered = [t['trade'] for t in scored_trades]
+            self.logger.info(f"Keeping all {len(filtered)} scored trades to avoid empty section")
         
         # Renumber the trades
         renumbered_trades = []
