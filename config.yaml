@@ -54,3 +54,7 @@ TICKER_CORRECTIONS:
   ABCD: IBKR      # Cambium Learning Group, Inc. (ABCD) is wrong, correct is Interactive Brokers (IBKR)
   LIL: LLY        # Eli Lilly and Company (LIL is incorrect, correct is LLY)
   EOS: EOSE       # Eos Energy Enterprises, Inc. (EOS is Eaton Vance, but in Turkish trading videos "EOS" usually refers to Eos Energy)
+  IMSANHORSE: HIMS # Hims & Hers Health, Inc. (IMSANHORSE is Turkish mispronunciation, correct is HIMS)
+  SOFAY: SOFI     # SoFi Technologies, Inc. (SOFAY is Turkish mispronunciation, correct is SOFI)
+  APPLEOVEN: APP  # Applovin Corporation (APPLEOVEN is Turkish mispronunciation, correct is APP)
+  "APPLE OVEN": APP  # Applovin Corporation (APPLE OVEN with space, correct is APP)

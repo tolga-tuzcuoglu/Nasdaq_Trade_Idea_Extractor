@@ -947,7 +947,8 @@ class AcceleratedNasdaqTrader:
             'ONUN', 'ORADA', 'UZUN', 'YANI', 'YINE', 'ZAMAN', 'ZATEN', 'VAR', 'BIR', 'BU', 'VE', 'YA', 'DA',
             'DE', 'KI', 'ILK', 'SON', 'DAHA', 'BIR', 'BIRAZ', 'BUNDA', 'ONDA', 'ONUN', 'ORADA', 'HATTA',
             # False positive tickers that are not valid
-            'DIP', 'IMSANHORSE', 'SOFAY', 'OVEN', 'APPLEOVEN', 'APPLE OVEN', 'AASI'  # These are invalid tickers and should be filtered
+            'DIP', 'OVEN', 'AASI'  # These are invalid tickers and should be filtered
+            # Note: IMSANHORSE, SOFAY, APPLEOVEN, APPLE OVEN are NOT in false_positives - they will be corrected via ticker_corrections
             # Note: ACPLE is NOT in false_positives - it will be corrected to AAPL via ticker_corrections
         }
         
@@ -1031,6 +1032,12 @@ class AcceleratedNasdaqTrader:
             (r'\bibekaray\b', 'IBKR'),  # Turkish pronunciation (lowercase)
             (r'\bCambium\s+Learning\s+Group\b', 'IBKR'),  # Cambium Learning Group, Inc. (ABCD) is wrong, correct is IBKR
             (r'\bAstera\s+Labs\b', 'ALAB'),
+            (r'\bImSanHorse\b', 'IMSANHORSE'),  # Will be corrected to HIMS
+            (r'\bImSanHorse\b', 'IMSANHORSE'),  # Turkish mispronunciation of HIMS
+            (r'\bSofay\b', 'SOFAY'),  # Will be corrected to SOFI
+            (r'\bSofay\b', 'SOFAY'),  # Turkish mispronunciation of SOFI
+            (r'\bApple\s+Oven\b', 'APPLEOVEN'),  # Will be corrected to APP
+            (r'\bApple\s+Oven\b', 'APPLE OVEN'),  # Will be corrected to APP
             (r'\bASTRALAC\b', 'ALAB'),  # Turkish mispronunciation
             (r'\bastralac\b', 'ALAB'),  # Turkish mispronunciation (lowercase)
             (r'\bastralaç\b', 'ALAB'),  # Turkish mispronunciation with ç
@@ -2496,11 +2503,11 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             
             # CRITICAL POST-PROCESSING: Remove false positive tickers from report
             false_positives_to_remove = {
-                'APPLEOVEN', 'APPLE OVEN',  # Handle both with and without space
-                'IMSANHORSE', 'SOFAY', 'OVEN', 'DIP',
+                'OVEN', 'DIP',
                 'AASI',  # AASI appears to be a false positive
                 'APOV',  # APOV appears to be a false positive
                 'IMSH'  # IMSH appears to be a false positive (might be misheard ticker)
+                # Note: APPLEOVEN, APPLE OVEN, IMSANHORSE, SOFAY are NOT in false_positives - they will be corrected via ticker_corrections
             }
             for false_positive in false_positives_to_remove:
                 # Remove entire sections with false positive tickers (more comprehensive pattern)
@@ -2562,11 +2569,23 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     self.logger.info(f"Removing industry suffix: {suffix_pattern}")
                     analysis_text = re.sub(pattern_industry, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
+            # CRITICAL POST-PROCESSING: Fix redundant company names (e.g., "Apple Inc. (AAPL) - Apple Inc.")
+            pattern_redundant = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*\1'
+            if re.search(pattern_redundant, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing redundant company name suffixes")
+                analysis_text = re.sub(pattern_redundant, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
+            
             # CRITICAL POST-PROCESSING: Fix MSTR company name - use "MicroStrategy Inc." instead of "Strategy Inc"
             pattern_mstr = r'Strategy Inc\s*\(MSTR\)'
             if re.search(pattern_mstr, analysis_text, re.IGNORECASE):
                 self.logger.info("Replacing 'Strategy Inc (MSTR)' with 'MicroStrategy Inc. (MSTR)'")
                 analysis_text = re.sub(pattern_mstr, 'MicroStrategy Inc. (MSTR)', analysis_text, flags=re.IGNORECASE)
+            
+            # CRITICAL POST-PROCESSING: Fix "Company Name (Unknown Ticker) - Company Name" format
+            pattern_unknown_redundant = r'([^*\n(]+?)\s*\(Unknown Ticker\)\s*-\s*\1'
+            if re.search(pattern_unknown_redundant, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing redundant company name with Unknown Ticker")
+                analysis_text = re.sub(pattern_unknown_redundant, r'\1 (Unknown Ticker)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Replace any hallucinated company names with validated ones
             # This provides a safety net in case Gemini still makes mistakes
