@@ -2569,25 +2569,42 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     self.logger.info(f"Removing industry suffix: {suffix_pattern}")
                     analysis_text = re.sub(pattern_industry, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
-            # CRITICAL POST-PROCESSING: Remove "Piyasalar" from section headers
-            # Fix patterns like "SPX (SPX)Piyasalar" -> "SPX (SPX)" or "S&P 500 Index (SPX) - Piyasalar" -> "S&P 500 Index (SPX)"
-            pattern_piyasalar = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*Piyasalar'
-            if re.search(pattern_piyasalar, analysis_text, re.IGNORECASE):
-                self.logger.info("Removing 'Piyasalar' from section headers")
-                analysis_text = re.sub(pattern_piyasalar, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
+            # CRITICAL POST-PROCESSING: Remove "Piyasalar" and related Turkish suffixes from section headers
+            # Fix patterns like "SPX (SPX)Piyasalar" -> "SPX (SPX)" or "S&P 500 Index (SPX)Piyasa Endeksi" -> "S&P 500 Index (SPX)"
+            piyasa_patterns = [
+                r'Piyasalar',
+                r'Piyasa Endeksi',
+                r'Piyasa Volatilite Endeksi',
+                r'Kripto Para',
+                r'PİYASA GÖSTERGESİ',
+                r'Market Indicator',
+            ]
+            for piyasa_pattern in piyasa_patterns:
+                pattern_piyasalar = rf'([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*{piyasa_pattern}'
+                if re.search(pattern_piyasalar, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing '{piyasa_pattern}' from section headers")
+                    analysis_text = re.sub(pattern_piyasalar, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
             # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)"
-            pattern_timestamp_in_header = r'###\s+([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*\*\*Timestamp\*\*:\s*[0-9:]+'
-            if re.search(pattern_timestamp_in_header, analysis_text, re.IGNORECASE):
-                self.logger.info("Removing timestamps from section headers")
-                analysis_text = re.sub(pattern_timestamp_in_header, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
-            
-            # Also fix patterns with extra spaces or formatting issues
-            pattern_timestamp_in_header2 = r'###\s+([^*\n(]+?)\s+\(([A-Z]{1,5})\)\s+\*\*Timestamp\*\*:\s*[0-9:]+'
-            if re.search(pattern_timestamp_in_header2, analysis_text, re.IGNORECASE):
-                self.logger.info("Removing timestamps from section headers (pattern 2)")
-                analysis_text = re.sub(pattern_timestamp_in_header2, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
+            # Handle various formats: **Timestamp**, Timestamp, with/without spaces
+            timestamp_patterns = [
+                r'\*\*Timestamp\*\*:\s*[0-9:]+',  # **Timestamp**: 0:07
+                r'\*\*Timestamp\*\*:\s*[0-9]+',   # **Timestamp**: 0
+                r'Timestamp:\s*[0-9:]+',          # Timestamp: 0:07
+                r'\*\*timestamp\*\*:\s*[0-9:]+',  # **timestamp**: 0:07 (lowercase)
+            ]
+            for timestamp_pattern in timestamp_patterns:
+                pattern_timestamp_in_header = rf'###\s+([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*{timestamp_pattern}'
+                if re.search(pattern_timestamp_in_header, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing timestamps from section headers (pattern: {timestamp_pattern})")
+                    analysis_text = re.sub(pattern_timestamp_in_header, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
+                
+                # Also handle patterns with extra spaces
+                pattern_timestamp_in_header2 = rf'###\s+([^*\n(]+?)\s+\(([A-Z]{{1,5}})\)\s+{timestamp_pattern}'
+                if re.search(pattern_timestamp_in_header2, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing timestamps from section headers (pattern 2: {timestamp_pattern})")
+                    analysis_text = re.sub(pattern_timestamp_in_header2, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix redundant company names (e.g., "Apple Inc. (AAPL) - Apple Inc.")
             pattern_redundant = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*\1'
