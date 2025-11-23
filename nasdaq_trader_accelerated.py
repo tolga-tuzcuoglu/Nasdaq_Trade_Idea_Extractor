@@ -1386,19 +1386,98 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                 # Use the most recent existing file
                 existing_file = max(existing_files, key=os.path.getctime)
                 self.logger.info(f"Using cached audio: {existing_file}")
-                # Return minimal metadata for cached files (we don't have full metadata)
-                video_metadata = {
-                    'video_id': video_id,
-                    'title': 'Cached Video',
-                    'channel': 'Unknown Channel',
-                    'upload_date': None,
-                    'view_count': None,
-                    'like_count': None,
-                    'duration': None,
-                    'duration_seconds': None,
-                    'description': None,
-                    'url': url
-                }
+                
+                # Still fetch metadata from YouTube even for cached files
+                try:
+                    from yt_dlp import YoutubeDL
+                    # Get YouTube authentication settings from config
+                    auth_config = self.config.get('YOUTUBE_AUTHENTICATION', {})
+                    enable_browser_cookies = auth_config.get('ENABLE_BROWSER_COOKIES', False)
+                    preferred_browsers = auth_config.get('PREFERRED_BROWSERS', ['chrome', 'firefox', 'edge', 'safari'])
+                    
+                    # Configure yt-dlp for metadata extraction only (no download)
+                    ydl_opts = {
+                        'quiet': True,
+                        'no_warnings': True,
+                        'extract_flat': False,
+                    }
+                    
+                    # Add cookie authentication if enabled
+                    if enable_browser_cookies and os.path.exists('cookies.txt'):
+                        ydl_opts['cookiefile'] = 'cookies.txt'
+                    
+                    with YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        
+                        # Extract metadata
+                        video_title = info.get('title', '')
+                        channel_name = info.get('uploader', '')
+                        if not video_title:
+                            video_title = info.get('fulltitle', '') or info.get('alt_title', '')
+                        if not channel_name:
+                            channel_name = info.get('uploader_id', '') or info.get('channel', '') or info.get('channel_id', '')
+                        
+                        upload_date = info.get('upload_date', '')
+                        if upload_date:
+                            try:
+                                from datetime import datetime as dt
+                                upload_date_formatted = dt.strptime(upload_date, '%Y%m%d').strftime('%Y-%m-%d')
+                            except:
+                                upload_date_formatted = upload_date
+                        else:
+                            upload_date_formatted = None
+                        
+                        view_count = info.get('view_count', None)
+                        like_count = info.get('like_count', None)
+                        duration = info.get('duration', None)
+                        description = info.get('description', '') or info.get('descriptions', '')
+                        if isinstance(description, list):
+                            description = '\n'.join(description) if description else ''
+                        
+                        # Format duration
+                        duration_formatted = None
+                        if duration:
+                            try:
+                                hours = int(duration // 3600)
+                                minutes = int((duration % 3600) // 60)
+                                seconds = int(duration % 60)
+                                if hours > 0:
+                                    duration_formatted = f"{hours}:{minutes:02d}:{seconds:02d}"
+                                else:
+                                    duration_formatted = f"{minutes}:{seconds:02d}"
+                            except:
+                                duration_formatted = str(duration)
+                        
+                        video_metadata = {
+                            'video_id': video_id,
+                            'title': video_title or 'Unknown Title',
+                            'channel': channel_name or 'Unknown Channel',
+                            'upload_date': upload_date_formatted,
+                            'view_count': view_count,
+                            'like_count': like_count,
+                            'duration': duration_formatted,
+                            'duration_seconds': duration,
+                            'description': description[:500] if description else None,
+                            'url': url
+                        }
+                        
+                        self.logger.info(f"Fetched metadata for cached video - Title: '{video_metadata['title']}', Channel: '{video_metadata['channel']}'")
+                except Exception as e:
+                    # If metadata fetch fails, use minimal metadata
+                    self.logger.warning(f"Failed to fetch metadata for cached video: {e}")
+                    video_metadata = {
+                        'video_id': video_id,
+                        'title': 'Unknown Title',
+                        'channel': 'Unknown Channel',
+                        'upload_date': None,
+                        'view_count': None,
+                        'like_count': None,
+                        'duration': None,
+                        'duration_seconds': None,
+                        'description': None,
+                        'url': url
+                    }
+                
                 return existing_file, video_metadata
             
             # Only download if no cached file exists
