@@ -2325,6 +2325,14 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # CRITICAL POST-PROCESSING: Fix incorrect ticker symbols
             # Replace incorrect tickers with correct ones based on correction mapping
             for incorrect_ticker, correct_ticker in self.ticker_corrections.items():
+                # Pattern 0: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (CORRECT_TICKER)"
+                # This handles cases like "### ASTR (ALAB)" -> "### ALAB (ALAB)"
+                pattern0 = rf'###\s+{re.escape(incorrect_ticker)}\s*\(([^)]+)\)'
+                replacement0 = rf'### \1 ({correct_ticker})'
+                if re.search(pattern0, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Correcting ticker in section header (company name): {incorrect_ticker} -> {correct_ticker}")
+                    analysis_text = re.sub(pattern0, replacement0, analysis_text, flags=re.IGNORECASE | re.MULTILINE)
+                
                 # Pattern 1: Replace in section headers "### Company Name (INCORRECT_TICKER)"
                 pattern1 = rf'###\s+([^*\n(]+?)\s*\({re.escape(incorrect_ticker)}\)'
                 replacement1 = rf'### \1 ({correct_ticker})'
