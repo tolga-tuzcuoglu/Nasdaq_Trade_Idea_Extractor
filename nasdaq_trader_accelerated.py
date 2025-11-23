@@ -1418,6 +1418,7 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                         'quiet': True,
                         'no_warnings': True,
                         'extract_flat': False,
+                        'skip_download': True,  # Don't download, just extract metadata
                     }
                     
                     # Add cookie authentication if enabled
@@ -2423,20 +2424,27 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # Replace incorrect tickers with correct ones based on correction mapping
             for incorrect_ticker, correct_ticker in self.ticker_corrections.items():
                 # Get validated company name for correct ticker if available
-                validated_company_name = validated_ticker_map.get(correct_ticker, correct_ticker)
+                validated_company_name = validated_ticker_map.get(correct_ticker, None)
+                
+                # If we don't have a validated company name, try to validate the correct ticker now
+                if not validated_company_name or validated_company_name == correct_ticker:
+                    is_valid, company_name, _, _ = self.ticker_validator.validate_ticker(correct_ticker)
+                    if is_valid and company_name and company_name != correct_ticker:
+                        validated_company_name = company_name
+                        # Add to validated_ticker_map for future use
+                        validated_ticker_map[correct_ticker] = validated_company_name
+                        self.logger.info(f"Validated corrected ticker {correct_ticker} -> {validated_company_name}")
+                
+                # Use validated company name if available, otherwise use the correct ticker
+                final_company_name = validated_company_name if validated_company_name and validated_company_name != correct_ticker else correct_ticker
                 
                 # Pattern 0: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (CORRECT_TICKER)"
                 # This handles cases like "### ASTR (ALAB)" -> "### Astera Labs Inc. (ALAB)"
                 # Or "### ASDR (MSTR)" -> "### MicroStrategy Inc. (MSTR)"
                 pattern0 = rf'###\s+{re.escape(incorrect_ticker)}\s*\(([^)]+)\)'
-                # Always use validated company name if available, otherwise fall back to ticker from parentheses
-                if validated_company_name and validated_company_name != correct_ticker:
-                    replacement0 = rf'### {validated_company_name} ({correct_ticker})'
-                else:
-                    # If no validated name, use the ticker from parentheses (which should be the correct ticker)
-                    replacement0 = rf'### \1 ({correct_ticker})'
+                replacement0 = rf'### {final_company_name} ({correct_ticker})'
                 if re.search(pattern0, analysis_text, re.IGNORECASE):
-                    self.logger.info(f"Correcting ticker in section header (company name): {incorrect_ticker} -> {correct_ticker} ({validated_company_name if validated_company_name != correct_ticker else 'using ticker from parentheses'})")
+                    self.logger.info(f"Correcting ticker in section header (company name): {incorrect_ticker} -> {correct_ticker} ({final_company_name})")
                     analysis_text = re.sub(pattern0, replacement0, analysis_text, flags=re.IGNORECASE | re.MULTILINE)
                 
                 # Pattern 0b: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (INCORRECT_TICKER)"
