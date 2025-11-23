@@ -2569,6 +2569,26 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     self.logger.info(f"Removing industry suffix: {suffix_pattern}")
                     analysis_text = re.sub(pattern_industry, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
+            # CRITICAL POST-PROCESSING: Remove "Piyasalar" from section headers
+            # Fix patterns like "SPX (SPX)Piyasalar" -> "SPX (SPX)" or "S&P 500 Index (SPX) - Piyasalar" -> "S&P 500 Index (SPX)"
+            pattern_piyasalar = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*Piyasalar'
+            if re.search(pattern_piyasalar, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing 'Piyasalar' from section headers")
+                analysis_text = re.sub(pattern_piyasalar, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
+            
+            # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
+            # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)"
+            pattern_timestamp_in_header = r'###\s+([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*\*\*Timestamp\*\*:\s*[0-9:]+'
+            if re.search(pattern_timestamp_in_header, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing timestamps from section headers")
+                analysis_text = re.sub(pattern_timestamp_in_header, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
+            
+            # Also fix patterns with extra spaces or formatting issues
+            pattern_timestamp_in_header2 = r'###\s+([^*\n(]+?)\s+\(([A-Z]{1,5})\)\s+\*\*Timestamp\*\*:\s*[0-9:]+'
+            if re.search(pattern_timestamp_in_header2, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing timestamps from section headers (pattern 2)")
+                analysis_text = re.sub(pattern_timestamp_in_header2, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
+            
             # CRITICAL POST-PROCESSING: Fix redundant company names (e.g., "Apple Inc. (AAPL) - Apple Inc.")
             pattern_redundant = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*\1'
             if re.search(pattern_redundant, analysis_text, re.IGNORECASE):
