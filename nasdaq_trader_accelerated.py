@@ -490,12 +490,10 @@ class AcceleratedNasdaqTrader:
         
         # Check if section has generic message (no trades)
         if re.search(r'belirtilen işlem fikirleri için net giriş|net giriş.*stop.*risk.*verilmemiş|spesifik alım.*satım emirleri', section_text, re.IGNORECASE):
-            # Generic message found - replace with fallback
-            self.logger.info("HIGH POTENTIAL TRADES section has generic message, creating fallback from TRADING OPPORTUNITIES")
-            enhanced_section = self._create_fallback_high_potential_trades(analysis_text)
-            if enhanced_section:
-                return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
-            return analysis_text
+            # Generic message found - replace with empty section
+            self.logger.info("HIGH POTENTIAL TRADES section has generic message - leaving empty")
+            enhanced_section = "## 🎯 HIGH POTENTIAL TRADES\n\n"
+            return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
         
         # Parse existing trades - handle both numbered and unnumbered formats
         trade_pattern = r'\*\*(\d+)\.\*\*\s*\*\*([^*\n(]+?)\s*\(([A-Z0-9]+)\)\*\*:\s*([A-Z/\s]+)\s*-?\s*(.*?)(?=\*\*\d+\.\*\*|\*\*[A-Z]|$)'
