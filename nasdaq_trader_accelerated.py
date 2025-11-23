@@ -2573,8 +2573,8 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             if validated_ticker_map:
                 self.logger.info("Post-processing: Replacing any incorrect company names with validated ones...")
                 for ticker, validated_company_name in validated_ticker_map.items():
-                    # Pattern 1: Match "Unknown Company (TICKER)" - MUST be replaced first
-                    pattern1 = rf'Unknown Company\s*\({re.escape(ticker)}\)'
+                    # Pattern 1: Match "Unknown Company (TICKER)" - MUST be replaced first (with or without industry suffix)
+                    pattern1 = rf'Unknown Company\s*\({re.escape(ticker)}\)(?:\s*-\s*[^-\n]+)?'
                     replacement1 = f'{validated_company_name} ({ticker})'
                     if re.search(pattern1, analysis_text, re.IGNORECASE):
                         self.logger.info(f"Replacing 'Unknown Company ({ticker})' with '{validated_company_name} ({ticker})'")
