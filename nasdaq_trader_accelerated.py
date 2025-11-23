@@ -597,13 +597,13 @@ class AcceleratedNasdaqTrader:
             
             enhanced_trades.append(enhanced_trade)
         
-        # If no trades found in section, create fallback
+        # If no trades found in section, it's okay to leave it empty
+        # Don't force create fallback - only show trades if LLM explicitly generated them
         if trade_count == 0:
-            self.logger.info("No trades found in HIGH POTENTIAL TRADES section, creating fallback")
-            enhanced_section = self._create_fallback_high_potential_trades(analysis_text)
-            if enhanced_section:
-                return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
-            return analysis_text
+            self.logger.info("No trades found in HIGH POTENTIAL TRADES section - leaving empty")
+            # Keep the section header but leave it empty
+            enhanced_section = "## 🎯 HIGH POTENTIAL TRADES\n\n"
+            return analysis_text[:section_start] + enhanced_section + analysis_text[section_end:]
         
         # Filter and rank trades by quality - keep only truly high potential ones
         filtered_trades = self._filter_high_quality_trades(enhanced_trades)
@@ -692,21 +692,15 @@ class AcceleratedNasdaqTrader:
         # Sort by score (highest first)
         scored_trades.sort(key=lambda x: x['score'], reverse=True)
         
-        # Filter by minimum quality score - more reasonable threshold
+        # Filter by minimum quality score - reasonable threshold
         # Prefer trades with complete data but don't exclude all trades
         min_quality_score = 20  # Reasonable threshold - trades with Entry/Stop/Target and BUY action
         filtered = [t['trade'] for t in scored_trades if t['score'] >= min_quality_score]
         
-        # If no trades meet the threshold, keep at least top 5-10 (fallback)
-        if not filtered and scored_trades:
-            # Keep top trades (up to 10) even if they don't meet strict threshold
-            filtered = [t['trade'] for t in scored_trades[:10]]
-            self.logger.info(f"No trades met quality threshold ({min_quality_score}), keeping top {len(filtered)} trades")
-        
-        # If still no trades, keep all scored trades (better than empty section)
-        if not filtered and scored_trades:
-            filtered = [t['trade'] for t in scored_trades]
-            self.logger.info(f"Keeping all {len(filtered)} scored trades to avoid empty section")
+        # If no trades meet the threshold, it's okay to have an empty section
+        # Don't force populate - only show truly high potential trades
+        if not filtered:
+            self.logger.info(f"No trades met quality threshold ({min_quality_score}) - HIGH POTENTIAL TRADES section will be empty")
         
         # Renumber the trades
         renumbered_trades = []
