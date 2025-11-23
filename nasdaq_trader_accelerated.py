@@ -2496,7 +2496,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             
             # CRITICAL POST-PROCESSING: Remove false positive tickers from report
             false_positives_to_remove = {
-                'APPLEOVEN', 'APPLE OVEN', 'APPLEOVEN',  # Handle both with and without space
+                'APPLEOVEN', 'APPLE OVEN',  # Handle both with and without space
                 'IMSANHORSE', 'SOFAY', 'OVEN', 'DIP',
                 'AASI'  # AASI appears to be a false positive
             }
