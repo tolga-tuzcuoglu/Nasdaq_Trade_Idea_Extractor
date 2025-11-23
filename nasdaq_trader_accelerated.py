@@ -2498,7 +2498,9 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             false_positives_to_remove = {
                 'APPLEOVEN', 'APPLE OVEN',  # Handle both with and without space
                 'IMSANHORSE', 'SOFAY', 'OVEN', 'DIP',
-                'AASI'  # AASI appears to be a false positive
+                'AASI',  # AASI appears to be a false positive
+                'APOV',  # APOV appears to be a false positive
+                'IMSH'  # IMSH appears to be a false positive (might be misheard ticker)
             }
             for false_positive in false_positives_to_remove:
                 # Remove entire sections with false positive tickers (more comprehensive pattern)
