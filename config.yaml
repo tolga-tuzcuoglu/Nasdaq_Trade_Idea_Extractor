@@ -47,6 +47,7 @@ TICKER_CORRECTIONS:
   DIELO: DLO      # DLocal Limited
   COREWAVE: CRWV  # CoreWave Inc.
   ASDR: MSTR      # MicroStrategy Inc. (ASDR is incorrect, correct is MSTR)
+  ACPLE: AAPL     # Apple Inc. (ACPLE is incorrect fuzzy match, correct is AAPL)
   # NBIS is a valid ticker, not NVIDIA - do not correct
   OSCAR: OSCR     # Oscar Health, Inc. (OSCAR is incorrect, correct ticker is OSCR)
   ASCAR: OSCR     # Oscar Health, Inc. (ASCAR is incorrect fuzzy match, should be OSCR)

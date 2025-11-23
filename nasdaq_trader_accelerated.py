@@ -948,10 +948,23 @@ class AcceleratedNasdaqTrader:
             'DE', 'KI', 'ILK', 'SON', 'DAHA', 'BIR', 'BIRAZ', 'BUNDA', 'ONDA', 'ONUN', 'ORADA', 'HATTA',
             # False positive tickers that are not valid
             'DIP', 'IMSANHORSE', 'SOFAY', 'OVEN'  # These are invalid tickers and should be filtered
+            # Note: ACPLE is NOT in false_positives - it will be corrected to AAPL via ticker_corrections
         }
         
         # Filter out tickers that are purely numeric (like "257513")
         tickers = {t for t in tickers if not t.isdigit()}
+        
+        # Apply ticker corrections BEFORE filtering false positives
+        # This ensures corrected tickers (like ACPLE -> AAPL) are not filtered out
+        corrected_tickers = set()
+        for ticker in tickers:
+            if ticker in self.ticker_corrections:
+                corrected_ticker = self.ticker_corrections[ticker]
+                self.logger.info(f"Applying ticker correction during extraction: {ticker} -> {corrected_ticker}")
+                corrected_tickers.add(corrected_ticker)
+            else:
+                corrected_tickers.add(ticker)
+        tickers = corrected_tickers
         
         # Additional pass: Look for company names mentioned in transcript that might map to tickers
         # Use generalizable patterns that work across different videos
@@ -1034,8 +1047,10 @@ class AcceleratedNasdaqTrader:
             (r'\bDLocal\b', 'DLO'),
             (r'\bD\s+Local\b', 'DLO'),
             (r'\bD[- ]Local\b', 'DLO'),  # DLocal Limited (with hyphen or space)
-            (r'\bCorewave\b', 'CRWV'),
-            (r'\bCoreweave\b', 'CRWV'),
+            (r'\bCorewave\b', 'CRWV'),  # CoreWave Inc.
+            (r'\bCoreweave\b', 'CRWV'),  # CoreWave Inc. (common misspelling)
+            (r'\bCoreWave\b', 'CRWV'),  # CoreWave Inc.
+            (r'\bCoreWave\s+Inc\.?\b', 'CRWV'),  # CoreWave Inc.
             # Manufacturing/Electronics
             (r'\bCelestica\b', 'CLS'),
             (r'\bCELESTICA\b', 'CLS'),  # Uppercase variation
@@ -1067,9 +1082,12 @@ class AcceleratedNasdaqTrader:
         additional_matches = re.findall(trading_context_pattern, text, re.IGNORECASE)
         for match in additional_matches:
             ticker = match.upper()
+            # Apply ticker corrections BEFORE checking false positives
+            if ticker in self.ticker_corrections:
+                corrected_ticker = self.ticker_corrections[ticker]
+                self.logger.info(f"Correcting ticker during extraction: {ticker} -> {corrected_ticker}")
+                ticker = corrected_ticker
             if len(ticker) >= 2 and len(ticker) <= 5 and ticker not in false_positives:
-                if ticker in self.ticker_corrections:
-                    ticker = self.ticker_corrections[ticker]
                 tickers.add(ticker)
         
         # Filter out index names that are often mistaken for tickers
@@ -2404,13 +2422,30 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # CRITICAL POST-PROCESSING: Fix incorrect ticker symbols
             # Replace incorrect tickers with correct ones based on correction mapping
             for incorrect_ticker, correct_ticker in self.ticker_corrections.items():
+                # Get validated company name for correct ticker if available
+                validated_company_name = validated_ticker_map.get(correct_ticker, correct_ticker)
+                
                 # Pattern 0: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (CORRECT_TICKER)"
-                # This handles cases like "### ASTR (ALAB)" -> "### ALAB (ALAB)"
+                # This handles cases like "### ASTR (ALAB)" -> "### Alabaster Therapeutics Inc. (ALAB)"
+                # Or "### ASDR (MSTR)" -> "### MicroStrategy Inc. (MSTR)"
                 pattern0 = rf'###\s+{re.escape(incorrect_ticker)}\s*\(([^)]+)\)'
-                replacement0 = rf'### \1 ({correct_ticker})'
+                # Always use validated company name if available, otherwise fall back to ticker from parentheses
+                if validated_company_name and validated_company_name != correct_ticker:
+                    replacement0 = rf'### {validated_company_name} ({correct_ticker})'
+                else:
+                    # If no validated name, use the ticker from parentheses (which should be the correct ticker)
+                    replacement0 = rf'### \1 ({correct_ticker})'
                 if re.search(pattern0, analysis_text, re.IGNORECASE):
-                    self.logger.info(f"Correcting ticker in section header (company name): {incorrect_ticker} -> {correct_ticker}")
+                    self.logger.info(f"Correcting ticker in section header (company name): {incorrect_ticker} -> {correct_ticker} ({validated_company_name if validated_company_name != correct_ticker else 'using ticker from parentheses'})")
                     analysis_text = re.sub(pattern0, replacement0, analysis_text, flags=re.IGNORECASE | re.MULTILINE)
+                
+                # Pattern 0b: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (INCORRECT_TICKER)"
+                # This handles cases like "### ASDR (ASDR)" -> "### MicroStrategy Inc. (MSTR)"
+                pattern0b = rf'###\s+{re.escape(incorrect_ticker)}\s*\({re.escape(incorrect_ticker)}\)'
+                replacement0b = rf'### {validated_company_name} ({correct_ticker})'
+                if re.search(pattern0b, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Correcting ticker in section header (both positions): {incorrect_ticker} -> {correct_ticker} ({validated_company_name})")
+                    analysis_text = re.sub(pattern0b, replacement0b, analysis_text, flags=re.IGNORECASE | re.MULTILINE)
                 
                 # Pattern 1: Replace in section headers "### Company Name (INCORRECT_TICKER)"
                 pattern1 = rf'###\s+([^*\n(]+?)\s*\({re.escape(incorrect_ticker)}\)'
@@ -2448,6 +2483,31 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     if re.search(pattern1, analysis_text, re.IGNORECASE):
                         self.logger.info(f"Replacing 'Unknown Company ({ticker})' with '{validated_company_name} ({ticker})'")
                         analysis_text = re.sub(pattern1, replacement1, analysis_text, flags=re.IGNORECASE)
+                    
+                    # Pattern 1a: Fix common company name issues for specific tickers
+                    # Fix "Coreweave (CRWV)" -> "CoreWave Inc. (CRWV)"
+                    if ticker == 'CRWV':
+                        pattern_coreweave = r'Coreweave\s*\(CRWV\)'
+                        if re.search(pattern_coreweave, analysis_text, re.IGNORECASE):
+                            self.logger.info(f"Replacing 'Coreweave (CRWV)' with '{validated_company_name} (CRWV)'")
+                            analysis_text = re.sub(pattern_coreweave, f'{validated_company_name} (CRWV)', analysis_text, flags=re.IGNORECASE)
+                        # Also fix in section headers
+                        pattern_coreweave_header = r'###\s+Coreweave\s*\(CRWV\)'
+                        if re.search(pattern_coreweave_header, analysis_text, re.IGNORECASE):
+                            self.logger.info(f"Replacing section header '### Coreweave (CRWV)' with '### {validated_company_name} (CRWV)'")
+                            analysis_text = re.sub(pattern_coreweave_header, f'### {validated_company_name} (CRWV)', analysis_text, flags=re.IGNORECASE)
+                    
+                    # Pattern 1a2: Fix ACPLE -> AAPL (Apple Inc.)
+                    if ticker == 'AAPL':
+                        pattern_acple = r'ACPLE\s*\(ACPLE\)'
+                        if re.search(pattern_acple, analysis_text, re.IGNORECASE):
+                            self.logger.info(f"Replacing 'ACPLE (ACPLE)' with '{validated_company_name} (AAPL)'")
+                            analysis_text = re.sub(pattern_acple, f'{validated_company_name} (AAPL)', analysis_text, flags=re.IGNORECASE)
+                        # Also fix in section headers
+                        pattern_acple_header = r'###\s+ACPLE\s*\(ACPLE\)'
+                        if re.search(pattern_acple_header, analysis_text, re.IGNORECASE):
+                            self.logger.info(f"Replacing section header '### ACPLE (ACPLE)' with '### {validated_company_name} (AAPL)'")
+                            analysis_text = re.sub(pattern_acple_header, f'### {validated_company_name} (AAPL)', analysis_text, flags=re.IGNORECASE)
                     
                     # Pattern 1b: Match "Unknown Company (TICKER) (some text)" - handle cases with additional text in parentheses
                     pattern1b = rf'Unknown Company\s*\({re.escape(ticker)}\)\s*\([^)]+\)'
