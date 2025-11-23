@@ -2426,7 +2426,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 validated_company_name = validated_ticker_map.get(correct_ticker, correct_ticker)
                 
                 # Pattern 0: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (CORRECT_TICKER)"
-                # This handles cases like "### ASTR (ALAB)" -> "### Alabaster Therapeutics Inc. (ALAB)"
+                # This handles cases like "### ASTR (ALAB)" -> "### Astera Labs Inc. (ALAB)"
                 # Or "### ASDR (MSTR)" -> "### MicroStrategy Inc. (MSTR)"
                 pattern0 = rf'###\s+{re.escape(incorrect_ticker)}\s*\(([^)]+)\)'
                 # Always use validated company name if available, otherwise fall back to ticker from parentheses

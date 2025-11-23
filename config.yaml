@@ -40,7 +40,7 @@ DIRECTORIES:
 TICKER_CORRECTIONS:
   # Common mispronunciations/misspellings in Turkish videos
   # Format: incorrect_ticker: correct_ticker
-  ASTR: ALAB      # Alabaster Therapeutics Inc. (was incorrectly identified as Astra Space)
+  ASTR: ALAB      # Astera Labs Inc. (was incorrectly identified as Astra Space)
   IRON: IREN      # IREN Limited / Iris Energy Ltd. (was incorrectly identified as Iron Mountain)
   IRIS: IREN      # IREN Limited / Iris Energy Ltd. (IRIS is incorrect, correct is IREN)
   CRIDO: CRDO     # Credo Technology Group Holding Ltd
