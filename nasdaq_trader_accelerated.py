@@ -2532,8 +2532,9 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 analysis_text = re.sub(pattern_unknown_suffix_tr, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Remove industry/sector suffixes (Turkish and English)
-            # Remove patterns like "Company Name (TICKER) - Teknoloji", "Company Name (TICKER) - Technology", etc.
-            industry_suffixes = [
+            # First, remove entire sections with "Unknown Company" and industry suffixes for invalid tickers
+            invalid_tickers_with_industry = ['APOV', 'IMSH']  # These appear to be false positives
+            industry_suffixes_list = [
                 r'-\s*Teknoloji',  # Turkish: Technology
                 r'-\s*Finans',  # Turkish: Finance
                 r'-\s*Finansal\s+Teknoloji',  # Turkish: Financial Technology
@@ -2543,7 +2544,17 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 r'-\s*Financial\s+Technology',  # English: Financial Technology
                 r'-\s*Finance/Technology',  # English: Finance/Technology
             ]
-            for suffix_pattern in industry_suffixes:
+            
+            # Remove entire sections with "Unknown Company (INVALID_TICKER) - Industry"
+            for invalid_ticker in invalid_tickers_with_industry:
+                for suffix_pattern in industry_suffixes_list:
+                    pattern_unknown_industry = rf'###\s+Unknown Company\s*\({re.escape(invalid_ticker)}\)\s*{suffix_pattern}[\s\S]*?(?=\n###|\Z)'
+                    if re.search(pattern_unknown_industry, analysis_text, re.IGNORECASE):
+                        self.logger.info(f"Removing invalid ticker section: Unknown Company ({invalid_ticker}) with industry suffix")
+                        analysis_text = re.sub(pattern_unknown_industry, '', analysis_text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+            
+            # Remove industry suffixes from company names (for valid tickers)
+            for suffix_pattern in industry_suffixes_list:
                 pattern_industry = rf'([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*{suffix_pattern}'
                 if re.search(pattern_industry, analysis_text, re.IGNORECASE):
                     self.logger.info(f"Removing industry suffix: {suffix_pattern}")
