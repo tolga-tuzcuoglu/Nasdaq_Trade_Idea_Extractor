@@ -2531,6 +2531,30 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 self.logger.info("Removing '- Bilinmeyen Şirket' suffix from company names")
                 analysis_text = re.sub(pattern_unknown_suffix_tr, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
+            # CRITICAL POST-PROCESSING: Remove industry/sector suffixes (Turkish and English)
+            # Remove patterns like "Company Name (TICKER) - Teknoloji", "Company Name (TICKER) - Technology", etc.
+            industry_suffixes = [
+                r'-\s*Teknoloji',  # Turkish: Technology
+                r'-\s*Finans',  # Turkish: Finance
+                r'-\s*Finansal\s+Teknoloji',  # Turkish: Financial Technology
+                r'-\s*Finans/Teknoloji',  # Turkish: Finance/Technology
+                r'-\s*Technology',  # English: Technology
+                r'-\s*Finance',  # English: Finance
+                r'-\s*Financial\s+Technology',  # English: Financial Technology
+                r'-\s*Finance/Technology',  # English: Finance/Technology
+            ]
+            for suffix_pattern in industry_suffixes:
+                pattern_industry = rf'([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*{suffix_pattern}'
+                if re.search(pattern_industry, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing industry suffix: {suffix_pattern}")
+                    analysis_text = re.sub(pattern_industry, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
+            
+            # CRITICAL POST-PROCESSING: Fix MSTR company name - use "MicroStrategy Inc." instead of "Strategy Inc"
+            pattern_mstr = r'Strategy Inc\s*\(MSTR\)'
+            if re.search(pattern_mstr, analysis_text, re.IGNORECASE):
+                self.logger.info("Replacing 'Strategy Inc (MSTR)' with 'MicroStrategy Inc. (MSTR)'")
+                analysis_text = re.sub(pattern_mstr, 'MicroStrategy Inc. (MSTR)', analysis_text, flags=re.IGNORECASE)
+            
             # CRITICAL POST-PROCESSING: Replace any hallucinated company names with validated ones
             # This provides a safety net in case Gemini still makes mistakes
             if validated_ticker_map:
