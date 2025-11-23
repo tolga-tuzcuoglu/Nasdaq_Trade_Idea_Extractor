@@ -945,8 +945,13 @@ class AcceleratedNasdaqTrader:
             # Turkish common words (capitalized versions that might be extracted)
             'BAKIN', 'BELKI', 'BIRAZ', 'BUNDA', 'DAHA', 'DOLAR', 'FIYAT', 'HATTA', 'KADAR', 'OLAN', 'ONDA',
             'ONUN', 'ORADA', 'UZUN', 'YANI', 'YINE', 'ZAMAN', 'ZATEN', 'VAR', 'BIR', 'BU', 'VE', 'YA', 'DA',
-            'DE', 'KI', 'ILK', 'SON', 'DAHA', 'BIR', 'BIRAZ', 'BUNDA', 'ONDA', 'ONUN', 'ORADA', 'HATTA'
+            'DE', 'KI', 'ILK', 'SON', 'DAHA', 'BIR', 'BIRAZ', 'BUNDA', 'ONDA', 'ONUN', 'ORADA', 'HATTA',
+            # False positive tickers that are not valid
+            'DIP', 'IMSANHORSE', 'SOFAY', 'OVEN'  # These are invalid tickers and should be filtered
         }
+        
+        # Filter out tickers that are purely numeric (like "257513")
+        tickers = {t for t in tickers if not t.isdigit()}
         
         # Additional pass: Look for company names mentioned in transcript that might map to tickers
         # Use generalizable patterns that work across different videos
@@ -2528,10 +2533,6 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 metadata_html += f"<p><strong>Upload Date:</strong> {metadata.get('upload_date')}</p>"
             if metadata.get('duration'):
                 metadata_html += f"<p><strong>Duration:</strong> {metadata.get('duration')}</p>"
-            if metadata.get('view_count'):
-                metadata_html += f"<p><strong>Views:</strong> {metadata.get('view_count'):,}</p>"
-            if metadata.get('like_count'):
-                metadata_html += f"<p><strong>Likes:</strong> {metadata.get('like_count'):,}</p>"
         metadata_html += f"<p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
         
         html_template = f"""<!DOCTYPE html>

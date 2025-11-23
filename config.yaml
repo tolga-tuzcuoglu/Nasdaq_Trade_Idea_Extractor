@@ -42,9 +42,11 @@ TICKER_CORRECTIONS:
   # Format: incorrect_ticker: correct_ticker
   ASTR: ALAB      # Alabaster Therapeutics Inc. (was incorrectly identified as Astra Space)
   IRON: IREN      # IREN Limited / Iris Energy Ltd. (was incorrectly identified as Iron Mountain)
+  IRIS: IREN      # IREN Limited / Iris Energy Ltd. (IRIS is incorrect, correct is IREN)
   CRIDO: CRDO     # Credo Technology Group Holding Ltd
   DIELO: DLO      # DLocal Limited
   COREWAVE: CRWV  # CoreWave Inc.
+  ASDR: MSTR      # MicroStrategy Inc. (ASDR is incorrect, correct is MSTR)
   # NBIS is a valid ticker, not NVIDIA - do not correct
   OSCAR: OSCR     # Oscar Health, Inc. (OSCAR is incorrect, correct ticker is OSCR)
   ASCAR: OSCR     # Oscar Health, Inc. (ASCAR is incorrect fuzzy match, should be OSCR)
