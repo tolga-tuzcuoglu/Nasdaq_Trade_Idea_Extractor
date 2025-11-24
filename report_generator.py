@@ -13,6 +13,21 @@ from datetime import datetime
 # Constants for null/empty value checking
 NULL_VALUES = ['', 'null', 'None', 'Not mentioned', 'Not specified']
 
+# Required assets that must be included if mentioned in transcript
+REQUIRED_ASSETS = {
+    # Indices
+    'US500', 'US100', 'RTY', 'VIX',
+    # Crypto
+    'BTCUSD', 'ETHUSD', 'SOLUSD',
+    # Stocks - Tech
+    'MSTR', 'COIN', 'AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOG', 'TSLA', 'AMD', 'PLTR', 'CRWD', 'AVGO',
+    # Stocks - Other
+    'HOOD', 'HIMS', 'SOFI', 'APP', 'RKLB', 'EOSE', 'CEG',
+    # Stocks - Trading Analysis List
+    'IBKR', 'AXON', 'UNH', 'LLY', 'ANET', 'ALAB', 'CRM', 'SE', 'GRAB', 'CLS', 'CELH', 'ZETA', 'NBIS', 
+    'CRDO', 'OSCR', 'TEM', 'LMND', 'MRVL', 'MU', 'IREN', 'DLO', 'CRWV'
+}
+
 class ReportGenerator:
     """Generate reports using structured data extraction approach"""
     
@@ -33,10 +48,24 @@ class ReportGenerator:
         Step 1: Extract structured data from transcript as JSON
         This is more reliable than generating formatted text directly
         """
+        # Apply ticker corrections to transcript before extraction
+        # This ensures ASTR becomes ALAB, etc.
+        corrected_transcript = self._apply_ticker_corrections_to_transcript(transcript)
+        
         # Build ticker reference
         ticker_ref = self._build_ticker_reference()
         
+        # Build required assets list for prompt
+        required_assets_str = ", ".join(sorted(REQUIRED_ASSETS))
+        
         extraction_prompt = f"""You are a data extraction specialist. Extract structured trading information from this Turkish trading video transcript.
+
+🎯 REQUIRED ASSETS LIST:
+The following assets should be prioritized if mentioned in the transcript WITH trading analysis:
+{required_assets_str}
+
+These include indices (US500, US100, RTY, VIX), cryptocurrencies (BTCUSD, ETHUSD, SOLUSD), and specific stocks.
+Only include these if they have trading analysis details (support, resistance, targets, sentiment, price levels).
 
 🚫 CRITICAL ANTI-HALLUCINATION RULES:
 - Extract ONLY information explicitly mentioned in the transcript
@@ -55,7 +84,7 @@ VIDEO INFORMATION:
 {ticker_ref}
 
 TRANSCRIPT:
-{transcript}
+{corrected_transcript}
 
 Extract ALL trading information into a structured JSON format. Respond ONLY with valid JSON, no additional text.
 
@@ -88,31 +117,32 @@ Required JSON structure:
 }}
 
 CRITICAL REQUIREMENTS:
-1. Include a ticker ONLY if it has technical analysis details (support, resistance, targets, sentiment, price levels, trading recommendations)
-2. Do NOT include tickers that are only briefly mentioned without any trading analysis or context
-3. For validated tickers (from reference), check transcript - if there's trading analysis, include it; if not, skip it
-4. For unvalidated tickers, include them ONLY if they have clear trading analysis (prices, support/resistance, targets, sentiment)
-5. DO NOT include obvious false positives like Turkish common words (BAKIN, BELKI, BIRAZ, BUNDA, DAHA, DOLAR, FIYAT, HATTA, KADAR, OLAN, ONDA, ONUN, ORADA, UZUN, YANI, YINE, ZAMAN, ZATEN, etc.)
-6. Use ONLY information from transcript - NO assumptions, NO external knowledge, NO guessing
-7. Extract timestamps EXACTLY from [MM:SS] or [HH:MM:SS] brackets in transcript when ticker is first mentioned
-8. Use validated company names from ticker reference when available (never invent company names)
-9. Mark high_potential=true ONLY for tickers with explicit BUY/SELL/HOLD recommendations AND technical analysis in transcript
-10. For prices: Use EXACT values from transcript, or null if not mentioned - NEVER guess or estimate
-11. For dates: Use EXACT format from transcript - if only day/month mentioned, do NOT add year
-12. For summary: Base ONLY on transcript content - NO external interpretation
-13. If any field is not mentioned in transcript, use null (not empty string, not placeholder text)
-14. QUALITY OVER QUANTITY: Only include tickers with actionable trading information
+1. REQUIRED ASSETS: If any asset from the REQUIRED ASSETS LIST above is mentioned in transcript WITH trading analysis, it MUST be included
+2. For ALL tickers (including required assets): Include ONLY if it has technical analysis details (support, resistance, targets, sentiment, price levels, trading recommendations)
+3. Do NOT include tickers that are only briefly mentioned without any trading analysis or context - this applies to ALL tickers including required assets
+4. For validated tickers (from reference), check transcript - if there's trading analysis, include it; if not, skip it (even if it's a required asset)
+5. For unvalidated tickers, include them ONLY if they have clear trading analysis (prices, support/resistance, targets, sentiment)
+6. DO NOT include obvious false positives like Turkish common words (BAKIN, BELKI, BIRAZ, BUNDA, DAHA, DOLAR, FIYAT, HATTA, KADAR, OLAN, ONDA, ONUN, ORADA, UZUN, YANI, YINE, ZAMAN, ZATEN, etc.)
+7. Use ONLY information from transcript - NO assumptions, NO external knowledge, NO guessing
+8. Extract timestamps EXACTLY from [MM:SS] or [HH:MM:SS] brackets in transcript when ticker is first mentioned
+9. Use validated company names from ticker reference when available (never invent company names)
+10. Mark high_potential=true ONLY for tickers with explicit BUY/SELL/HOLD recommendations AND technical analysis in transcript
+11. For prices: Use EXACT values from transcript, or null if not mentioned - NEVER guess or estimate
+12. For dates: Use EXACT format from transcript - if only day/month mentioned, do NOT add year
+13. For summary: Base ONLY on transcript content - NO external interpretation
+14. If any field is not mentioned in transcript, use null (not empty string, not placeholder text)
+15. TICKER CORRECTIONS: ASTR should be extracted as ALAB, CRIDO as CRDO, etc. (corrections are applied automatically)
 
 VALIDATION CHECKLIST:
-- Include validated tickers ONLY if they have technical analysis in transcript (support, resistance, targets, sentiment, price levels)
-- Do NOT include tickers just because they're validated - they need trading context
-- Consider including unvalidated tickers ONLY if they have clear trading analysis (prices, support/resistance, targets, sentiment)
+- REQUIRED ASSETS: Include ONLY if mentioned WITH trading analysis (support, resistance, targets, sentiment, price levels)
+- All validated tickers: Include ONLY if they have technical analysis in transcript (support, resistance, targets, sentiment, price levels)
+- Unvalidated tickers: Include ONLY if they have clear trading analysis (prices, support/resistance, targets, sentiment)
 - DO NOT include obvious Turkish common words (BAKIN, BELKI, BIRAZ, etc.)
 - Every price must be traceable to exact transcript mention
 - Every timestamp must match transcript brackets
 - Every date must match transcript exactly (no additions)
 - No information added that isn't in transcript
-- Quality over quantity - only actionable trading information
+- Apply ticker corrections (ASTR→ALAB, etc.)
 
 Return ONLY the JSON object, no markdown formatting, no code blocks, no explanations."""
 
@@ -132,37 +162,43 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
             # Parse JSON
             structured_data = json.loads(response_text)
             
-            # CRITICAL VALIDATION: Verify all VALIDATED tickers are included
-            # Only include tickers that have been validated (to avoid false positives like Turkish words)
-            validated_ticker_set = set(self.validated_ticker_map.keys()) if self.validated_ticker_map else set()
-            extracted_in_json = set(t.get('ticker', '') for t in structured_data.get('tickers', []))
-            missing_validated_tickers = validated_ticker_set - extracted_in_json
+            # Apply ticker corrections to extracted tickers (ASTR -> ALAB, etc.)
+            structured_data = self._apply_ticker_corrections_to_data(structured_data)
             
-            if missing_validated_tickers:
-                # Log warning but don't fail - we'll add missing validated tickers below
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Extracted JSON missing {len(missing_validated_tickers)} validated tickers: {missing_validated_tickers}")
+            # Filter out tickers that don't have trading details (including required assets)
+            # Only keep tickers with actual trading analysis (support, resistance, targets, sentiment, prices, etc.)
+            filtered_tickers = []
+            for ticker_data in structured_data.get('tickers', []):
+                # Check if ticker has any trading details
+                resistance = ticker_data.get('resistance')
+                support = ticker_data.get('support')
+                target = ticker_data.get('target')
+                entry_price = ticker_data.get('entry_price')
+                stop_loss = ticker_data.get('stop_loss')
+                sentiment = ticker_data.get('sentiment')
+                notes = ticker_data.get('notes')
+                
+                # Check if any trading detail exists (not null/empty)
+                has_resistance = resistance and resistance not in [None, 'null', 'None', '']
+                has_support = support and support not in [None, 'null', 'None', '']
+                has_target = target and target not in [None, 'null', 'None', '']
+                has_entry = entry_price and entry_price not in [None, 'null', 'None', '']
+                has_stop = stop_loss and stop_loss not in [None, 'null', 'None', '']
+                has_sentiment = sentiment and sentiment not in [None, 'null', 'None', 'Neutral', '']
+                # Notes must have meaningful content (not placeholder messages)
+                empty_notes = ['', 'Ticker was mentioned in transcript but specific details were not found.', 
+                              'Required asset was mentioned in transcript but specific trading details were not found.']
+                has_notes = notes and notes not in [None, 'null', 'None'] + empty_notes
+                
+                # Only include if it has at least one trading detail
+                has_trading_details = (has_resistance or has_support or has_target or has_entry or 
+                                     has_stop or has_sentiment or has_notes)
+                
+                # Only include if it has trading details
+                if has_trading_details:
+                    filtered_tickers.append(ticker_data)
             
-            # Add missing VALIDATED tickers with minimal data (only validated tickers to avoid false positives)
-            for missing_ticker in missing_validated_tickers:
-                structured_data['tickers'].append({
-                    'ticker': missing_ticker,
-                    'company_name': self.validated_ticker_map.get(missing_ticker, 'Unknown Company'),
-                    'timestamp': 'Not mentioned',
-                    'sentiment': 'Neutral',
-                    'sentiment_reason': 'Ticker mentioned in transcript but specific details not extracted',
-                    'resistance': None,
-                    'support': None,
-                    'target': None,
-                    'notes': 'Ticker was mentioned in transcript but specific details were not found.',
-                    'high_potential': False,
-                    'entry_price': None,
-                    'stop_loss': None,
-                    'risk': None,
-                    'risk_reward': None
-                })
-            
+            structured_data['tickers'] = filtered_tickers
             return structured_data
         except json.JSONDecodeError as e:
             raise Exception(f"Failed to parse JSON response: {e}\nResponse was: {response_text[:500]}")
@@ -176,35 +212,13 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
         """
         report = []
         
-        # Report Information
-        report.append("## 📊 REPORT INFORMATION")
-        report.append(f"- **Source**: {structured_data.get('video_info', {}).get('title', 'Unknown')} - {structured_data.get('video_info', {}).get('channel', 'Unknown')}")
-        date = structured_data.get('video_info', {}).get('date')
-        if date:
-            report.append(f"- **Video Date**: {date}")
-        report.append("")
-        
-        # Short Summary - Add video metadata here (only once)
+        # Short Summary
         report.append("## 📝 SHORT SUMMARY")
-        
-        # Add video metadata to summary if available
-        metadata_lines = []
-        if video_metadata:
-            if video_metadata.get('upload_date'):
-                metadata_lines.append(f"**Video Upload Date**: {video_metadata.get('upload_date')}")
-            if video_metadata.get('duration'):
-                metadata_lines.append(f"**Video Duration**: {video_metadata.get('duration')}")
         
         summary = structured_data.get('summary')
         if summary and summary not in [None, 'null', 'None']:
-            if metadata_lines:
-                report.append("\n".join(metadata_lines))
-                report.append("")
             report.append(summary)
         else:
-            if metadata_lines:
-                report.append("\n".join(metadata_lines))
-                report.append("")
             report.append("*Summary not available from transcript*")
         report.append("")
         
@@ -453,4 +467,170 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
         
         # Different content, combine them
         return f"{existing_notes}. {new_notes}"
+    
+    def _apply_ticker_corrections_to_transcript(self, transcript: str) -> str:
+        """Apply ticker corrections to transcript before extraction"""
+        corrected = transcript
+        if self.ticker_corrections:
+            # Apply corrections (e.g., ASTR -> ALAB in context)
+            # We need to be careful to only replace ticker mentions, not words
+            for incorrect, correct in self.ticker_corrections.items():
+                # Replace ticker codes in brackets or standalone mentions
+                # Pattern: [ASTR] or "ASTR" or ASTR (as ticker)
+                pattern = r'\b' + re.escape(incorrect) + r'\b'
+                corrected = re.sub(pattern, correct, corrected, flags=re.IGNORECASE)
+        return corrected
+    
+    def _apply_ticker_corrections_to_data(self, structured_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply ticker corrections to extracted JSON data"""
+        if not self.ticker_corrections:
+            return structured_data
+        
+        corrected_tickers = []
+        for ticker_data in structured_data.get('tickers', []):
+            ticker = ticker_data.get('ticker', '').upper()
+            # Apply correction if needed
+            if ticker in self.ticker_corrections:
+                corrected_ticker = self.ticker_corrections[ticker]
+                ticker_data['ticker'] = corrected_ticker
+                # Update company name if available in validated map or use asset name
+                if corrected_ticker in self.validated_ticker_map:
+                    ticker_data['company_name'] = self.validated_ticker_map[corrected_ticker]
+                elif corrected_ticker in REQUIRED_ASSETS:
+                    ticker_data['company_name'] = self._get_asset_name(corrected_ticker)
+                ticker = corrected_ticker
+            
+            # Also ensure company names are set for required assets
+            if ticker in REQUIRED_ASSETS and (not ticker_data.get('company_name') or ticker_data.get('company_name') == 'Unknown Company'):
+                if ticker in self.validated_ticker_map:
+                    ticker_data['company_name'] = self.validated_ticker_map[ticker]
+                else:
+                    ticker_data['company_name'] = self._get_asset_name(ticker)
+            
+            corrected_tickers.append(ticker_data)
+        
+        structured_data['tickers'] = corrected_tickers
+        return structured_data
+    
+    def _find_mentioned_required_assets(self, transcript: str) -> set:
+        """Find which required assets are mentioned in transcript"""
+        mentioned = set()
+        transcript_upper = transcript.upper()
+        
+        # Map of ticker to possible mentions in Turkish/English
+        asset_mentions = {
+            'US500': ['US500', 'S&P 500', 'SMP 500', 'S&P500', 'SMP500', 'SPX'],
+            'US100': ['US100', 'NASDAQ', 'NDX', 'NASDAQ 100', 'NAS100'],
+            'RTY': ['RTY', 'RUSSELL', 'RUT', 'RUSSELL 2000'],
+            'VIX': ['VIX'],
+            'BTCUSD': ['BTCUSD', 'BITCOIN', 'BTC', 'BITCOIN USD'],
+            'ETHUSD': ['ETHUSD', 'ETHEREUM', 'ETH', 'ETHEREUM USD'],
+            'SOLUSD': ['SOLUSD', 'SOLANA', 'SOL', 'SOLANA USD'],
+            'MSTR': ['MSTR', 'MICROSTRATEGY', 'MICRO STRATEGY'],
+            'COIN': ['COIN', 'COINBASE'],
+            'AAPL': ['AAPL', 'APPLE'],
+            'MSFT': ['MSFT', 'MICROSOFT'],
+            'NVDA': ['NVDA', 'NVIDIA', 'NVIDIA'],
+            'AMZN': ['AMZN', 'AMAZON'],
+            'META': ['META', 'FACEBOOK'],
+            'GOOG': ['GOOG', 'GOOGLE', 'ALPHABET'],
+            'TSLA': ['TSLA', 'TESLA'],
+            'AMD': ['AMD'],
+            'PLTR': ['PLTR', 'PALANTIR'],
+            'CRWD': ['CRWD', 'CROWDSTRIKE'],
+            'AVGO': ['AVGO', 'BROADCOM'],
+            'HOOD': ['HOOD', 'ROBINHOOD'],
+            'HIMS': ['HIMS', 'HIMS & HERS'],
+            'SOFI': ['SOFI', 'SOFI TECHNOLOGIES'],
+            'APP': ['APP', 'APPLOVIN'],
+            'RKLB': ['RKLB', 'ROCKET LAB'],
+            'EOSE': ['EOSE', 'EOS ENERGY'],
+            'CEG': ['CEG', 'CONSTELLATION ENERGY'],
+            'IBKR': ['IBKR', 'INTERACTIVE BROKERS'],
+            'AXON': ['AXON'],
+            'UNH': ['UNH', 'UNITEDHEALTH', 'UNITED HEALTH'],
+            'LLY': ['LLY', 'ELI LILLY', 'LILLY'],
+            'ANET': ['ANET', 'ARISTA'],
+            'ALAB': ['ALAB', 'ASTERA LABS', 'ASTRALABS', 'ASTERALABS'],
+            'CRM': ['CRM', 'SALESFORCE'],
+            'SE': ['SE', 'SEA LIMITED', 'SEA LIMIT'],
+            'GRAB': ['GRAB', 'GRAB HOLDINGS'],
+            'CLS': ['CLS', 'CELESTICA'],
+            'CELH': ['CELH', 'CELSIUS'],
+            'ZETA': ['ZETA'],
+            'NBIS': ['NBIS', 'NEBIUS', 'EN MISLI'],
+            'CRDO': ['CRDO', 'CREDO', 'CRIDO'],
+            'OSCR': ['OSCR', 'OSCAR'],
+            'TEM': ['TEM', 'TEMPUS'],
+            'LMND': ['LMND', 'LEMONADE'],
+            'MRVL': ['MRVL', 'MARVELL', 'MARVEL'],
+            'MU': ['MU', 'MICRON'],
+            'IREN': ['IREN', 'IRIS ENERGY', 'IRIS ENERJI'],
+            'DLO': ['DLO', 'DLOCAL', 'DEAL OKUL LIMIT'],
+            'CRWV': ['CRWV', 'COREWAVE', 'CORE WAVE']
+        }
+        
+        for ticker in REQUIRED_ASSETS:
+            if ticker in asset_mentions:
+                for mention in asset_mentions[ticker]:
+                    if mention in transcript_upper:
+                        mentioned.add(ticker)
+                        break
+        
+        return mentioned
+    
+    def _get_asset_name(self, ticker: str) -> str:
+        """Get proper name for asset/ticker"""
+        asset_names = {
+            'US500': 'S&P 500 Index',
+            'US100': 'NASDAQ 100 Index',
+            'RTY': 'Russell 2000 Index',
+            'VIX': 'CBOE Volatility Index',
+            'BTCUSD': 'Bitcoin',
+            'ETHUSD': 'Ethereum',
+            'SOLUSD': 'Solana',
+            'MSTR': 'MicroStrategy Inc.',
+            'COIN': 'Coinbase Global, Inc.',
+            'AAPL': 'Apple Inc.',
+            'MSFT': 'Microsoft Corporation',
+            'NVDA': 'NVIDIA Corporation',
+            'AMZN': 'Amazon.com, Inc.',
+            'META': 'Meta Platforms, Inc.',
+            'GOOG': 'Alphabet Inc.',
+            'TSLA': 'Tesla, Inc.',
+            'AMD': 'Advanced Micro Devices, Inc.',
+            'PLTR': 'Palantir Technologies Inc.',
+            'CRWD': 'CrowdStrike Holdings, Inc.',
+            'AVGO': 'Broadcom Inc.',
+            'HOOD': 'Robinhood Markets, Inc.',
+            'HIMS': 'Hims & Hers Health, Inc.',
+            'SOFI': 'SoFi Technologies, Inc.',
+            'APP': 'AppLovin Corporation',
+            'RKLB': 'Rocket Lab Corporation',
+            'EOSE': 'Eos Energy Enterprises, Inc.',
+            'CEG': 'Constellation Energy Corporation',
+            'IBKR': 'Interactive Brokers Group, Inc.',
+            'AXON': 'Axon Enterprise, Inc.',
+            'UNH': 'UnitedHealth Group Incorporated',
+            'LLY': 'Eli Lilly and Company',
+            'ANET': 'Arista Networks Inc',
+            'ALAB': 'Astera Labs, Inc.',
+            'CRM': 'Salesforce, Inc.',
+            'SE': 'Sea Limited',
+            'GRAB': 'Grab Holdings Limited',
+            'CLS': 'Celestica Inc.',
+            'CELH': 'Celsius Holdings, Inc.',
+            'ZETA': 'Zeta Global Holdings Corp.',
+            'NBIS': 'Nebius Group N.V.',
+            'CRDO': 'Credo Technology Group Holding Ltd',
+            'OSCR': 'Oscar Health, Inc.',
+            'TEM': 'Tempus AI, Inc.',
+            'LMND': 'Lemonade, Inc.',
+            'MRVL': 'Marvell Technology, Inc.',
+            'MU': 'Micron Technology, Inc.',
+            'IREN': 'IREN Limited',
+            'DLO': 'DLocal Limited',
+            'CRWV': 'CoreWeave, Inc.'
+        }
+        return asset_names.get(ticker.upper(), 'Unknown Company')
 
