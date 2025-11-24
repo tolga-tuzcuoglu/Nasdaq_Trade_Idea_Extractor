@@ -2666,11 +2666,40 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 analysis_text = re.sub(pattern_kripto_varlik_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
-            # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)"
+            # Strategy: Extract timestamps from headers and ensure they appear as bullet points
+            # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)" + bullet point
             # IMPORTANT: Timestamp is directly attached to closing parenthesis with NO space: (TICKER)**Timestamp**
             # Pattern: ### Company Name (TICKER)**Timestamp**: 0:07
-            # Use [^\n(] instead of [^*\n(] to allow matching through asterisks
-            # Apply multiple times to catch all variations
+            
+            # First, extract timestamps from headers and store them for insertion
+            def extract_and_remove_timestamp_from_header(match):
+                """Extract timestamp from header and return cleaned header + timestamp"""
+                header_part = match.group(1)  # The header part (### Company Name (TICKER))
+                timestamp_part = match.group(2) if match.lastindex >= 2 else None  # The timestamp part
+                
+                if timestamp_part:
+                    # Extract just the time (e.g., "0:07" from "**Timestamp**: 0:07")
+                    time_match = re.search(r'([0-9:]+)', timestamp_part)
+                    if time_match:
+                        timestamp_value = time_match.group(1)
+                        # Store for later insertion (we'll add it as a bullet point)
+                        return (header_part, timestamp_value)
+                return (header_part, None)
+            
+            # Pattern to match headers with timestamps and extract both parts
+            pattern_timestamp_extract = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*([0-9:]+)'
+            
+            # Find all headers with timestamps and extract them
+            headers_with_timestamps = {}
+            for match in re.finditer(pattern_timestamp_extract, analysis_text, re.IGNORECASE):
+                header_part = match.group(1)
+                timestamp_value = match.group(2)
+                # Use header as key (normalized)
+                header_key = header_part.strip()
+                headers_with_timestamps[header_key] = timestamp_value
+                self.logger.info(f"Found timestamp in header: {header_key} -> {timestamp_value}")
+            
+            # Now remove timestamps from headers (iterative approach)
             timestamp_removed = True
             iterations = 0
             while timestamp_removed and iterations < 5:  # Max 5 iterations to prevent infinite loops
@@ -2690,6 +2719,39 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     self.logger.info(f"Removing timestamps from section headers (catch-all pattern, iteration {iterations})")
                     analysis_text = re.sub(pattern_timestamp_catchall, r'\1', analysis_text, flags=re.IGNORECASE)
                     timestamp_removed = True
+            
+            # Now ensure timestamps appear as bullet points: Add extracted timestamps as bullet points if missing
+            if headers_with_timestamps:
+                for header_key, timestamp_value in headers_with_timestamps.items():
+                    # Find the section starting with this header
+                    # Pattern: header_key followed by newline and list items (or empty section)
+                    header_pattern = re.escape(header_key)
+                    # Look for the section - match header, optional whitespace, newline, then any content until next header or end
+                    # Use non-greedy match to stop at next ### header
+                    section_pattern = rf'({header_pattern})\s*\n((?:-.*\n|.*\n)*?)(?=\n###|\Z)'
+                    
+                    def ensure_timestamp_bullet(match):
+                        header = match.group(1)
+                        existing_content = match.group(2)
+                        
+                        # Check if timestamp bullet point already exists (avoid duplicates)
+                        if re.search(r'-\s*\*\*Timestamp\*\*:\s*', existing_content, re.IGNORECASE):
+                            # Timestamp already exists as bullet point, don't add
+                            self.logger.debug(f"Timestamp already exists as bullet point for {header_key}, skipping")
+                            return match.group(0)
+                        
+                        # Add timestamp as first bullet point
+                        timestamp_bullet = f"- **Timestamp**: {timestamp_value}\n"
+                        # If section has content, add before it; otherwise just add the bullet
+                        if existing_content.strip():
+                            return f"{header}\n{timestamp_bullet}{existing_content}"
+                        else:
+                            return f"{header}\n{timestamp_bullet}"
+                    
+                    # Apply the fix
+                    if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
+                        self.logger.info(f"Adding timestamp as bullet point for header: {header_key} -> {timestamp_value}")
+                        analysis_text = re.sub(section_pattern, ensure_timestamp_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
             
             # Also handle " - Kripto Para" format (e.g., "Bitcoin - Kripto Para")
             pattern_kripto_standalone = r'###\s+([^\n(]+?)\s*-\s*Kripto Para'
