@@ -1417,29 +1417,97 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                 self.logger.info(f"Using cached audio: {existing_file}")
                 
                 # Still fetch metadata from YouTube even for cached files
-                try:
-                    # Get YouTube authentication settings from config
-                    # Note: YoutubeDL is imported at module level
-                    auth_config = self.config.get('YOUTUBE_AUTHENTICATION', {})
-                    enable_browser_cookies = auth_config.get('ENABLE_BROWSER_COOKIES', False)
-                    preferred_browsers = auth_config.get('PREFERRED_BROWSERS', ['chrome', 'firefox', 'edge', 'safari'])
+                # Use robust retry logic similar to download code
+                info = None
+                auth_config = self.config.get('YOUTUBE_AUTHENTICATION', {})
+                enable_browser_cookies = auth_config.get('ENABLE_BROWSER_COOKIES', False)
+                preferred_browsers = auth_config.get('PREFERRED_BROWSERS', ['chrome', 'firefox', 'edge', 'safari'])
+                fallback_to_no_auth = auth_config.get('FALLBACK_TO_NO_AUTH', True)
+                
+                # Configure yt-dlp for metadata extraction only (no download)
+                ydl_opts_metadata = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'extract_flat': False,
+                    'skip_download': True,  # Don't download, just extract metadata
+                    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['android', 'web'],
+                            'player_skip': ['webpage', 'configs'],
+                        }
+                    },
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-us,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate',
+                        'Connection': 'keep-alive',
+                    },
+                    'retries': 10,
+                    'fragment_retries': 10,
+                }
+                
+                # Try to fetch metadata with authentication if enabled
+                if enable_browser_cookies:
+                    # Try manual cookie file first
+                    cookie_file = 'cookies.txt'
+                    if os.path.exists(cookie_file):
+                        try:
+                            self.logger.info(f"Fetching metadata for cached video with cookie file: {cookie_file}")
+                            ydl_opts_with_auth = ydl_opts_metadata.copy()
+                            ydl_opts_with_auth['cookiefile'] = cookie_file
+                            with YoutubeDL(ydl_opts_with_auth) as ydl:
+                                info = ydl.extract_info(url, download=False)
+                                self.logger.info(f"Successfully fetched metadata using cookie file")
+                        except Exception as e:
+                            self.logger.warning(f"Metadata fetch with cookie file failed: {str(e)[:100]}")
                     
-                    # Configure yt-dlp for metadata extraction only (no download)
-                    ydl_opts = {
-                        'quiet': True,
-                        'no_warnings': True,
-                        'extract_flat': False,
-                        'skip_download': True,  # Don't download, just extract metadata
-                    }
+                    # If cookie file didn't work, try browsers
+                    if info is None:
+                        for browser in preferred_browsers:
+                            try:
+                                self.logger.info(f"Fetching metadata for cached video with {browser} browser cookies")
+                                ydl_opts_with_auth = ydl_opts_metadata.copy()
+                                ydl_opts_with_auth['cookiesfrombrowser'] = (browser,)
+                                with YoutubeDL(ydl_opts_with_auth) as ydl:
+                                    info = ydl.extract_info(url, download=False)
+                                    self.logger.info(f"Successfully fetched metadata using {browser} browser cookies")
+                                    break
+                            except Exception as e:
+                                self.logger.warning(f"Metadata fetch with {browser} failed: {str(e)[:100]}")
+                                continue
+                
+                # If authentication didn't work, try without auth with fallback methods
+                if info is None and fallback_to_no_auth:
+                    self.logger.info("Trying to fetch metadata without authentication")
+                    extraction_methods = [
+                        {'player_client': ['android', 'web']},
+                        {'player_client': ['ios', 'web']},
+                        {'player_client': ['web']},
+                        {'player_client': ['mweb', 'web']},
+                    ]
                     
-                    # Add cookie authentication if enabled
-                    if enable_browser_cookies and os.path.exists('cookies.txt'):
-                        ydl_opts['cookiefile'] = 'cookies.txt'
-                    
-                    with YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        
-                        # Extract metadata
+                    for method in extraction_methods:
+                        try:
+                            ydl_opts_fallback = ydl_opts_metadata.copy()
+                            ydl_opts_fallback['extractor_args'] = {
+                                'youtube': {
+                                    **method,
+                                    'player_skip': ['webpage', 'configs'],
+                                }
+                            }
+                            with YoutubeDL(ydl_opts_fallback) as ydl:
+                                info = ydl.extract_info(url, download=False)
+                                self.logger.info(f"Successfully fetched metadata using method: {method}")
+                                break
+                        except Exception as e:
+                            self.logger.warning(f"Metadata fetch method {method} failed: {str(e)[:100]}")
+                            continue
+                
+                # Extract metadata if we got info
+                if info:
+                    try:
                         video_title = info.get('title', '')
                         channel_name = info.get('uploader', '')
                         if not video_title:
@@ -1493,15 +1561,14 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                         
                         self.logger.info(f"Fetched metadata for cached video - Title: '{video_metadata['title']}', Channel: '{video_metadata['channel']}'")
                         
-                        # If we got valid metadata, return it
+                        # Return if we got valid metadata
                         if video_metadata['title'] != 'Unknown Title' and video_metadata['channel'] != 'Unknown Channel':
                             return existing_file, video_metadata
-                except Exception as e:
-                    # If metadata fetch fails, log the error and try alternative method
-                    self.logger.warning(f"Failed to fetch metadata for cached video with yt-dlp: {e}")
-                    # Try using YouTube API or other method if available
-                    # For now, we'll use minimal metadata but log that we tried
-                    self.logger.info("Using fallback metadata for cached video")
+                    except Exception as e:
+                        self.logger.warning(f"Error extracting metadata from info: {e}")
+                
+                # If we get here, metadata fetch failed
+                self.logger.warning("Failed to fetch metadata for cached video after all retry attempts")
                 
                 # Fallback: use minimal metadata
                 video_metadata = {
