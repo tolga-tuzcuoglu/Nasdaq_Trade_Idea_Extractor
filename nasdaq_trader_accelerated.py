@@ -2756,9 +2756,32 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 self.logger.info("Removing ' - Kripto Para' suffix from section headers")
                 analysis_text = re.sub(pattern_kripto_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
-            # CRITICAL POST-PROCESSING: Remove field labels from headers
+            # CRITICAL POST-PROCESSING: Extract field labels from headers and add as bullet points
             # Pattern: ### Company (TICKER)**Resistance**: value or ### Company (TICKER)**Support**: value, etc.
             # These field labels should only appear as bullet points, not in headers
+            # Extract field labels BEFORE removing them
+            headers_with_field_labels = {}
+            
+            # Pattern to match headers with field labels and extract them
+            field_labels_extract_pattern = re.compile(
+                r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\s*\*\*((?:Resistance|Support|Target|Sentiment|Timestamp|Notes|Entry|Stop|Risk))\*\*:\s*([^\n]*)',
+                re.IGNORECASE | re.MULTILINE
+            )
+            
+            matches = list(field_labels_extract_pattern.finditer(analysis_text))
+            if matches:
+                self.logger.info(f"Found {len(matches)} headers with field labels - extracting to bullet points")
+                for match in reversed(matches):  # Process in reverse to maintain positions
+                    header_part = match.group(1)  # Company Name (TICKER)
+                    field_label = match.group(2)  # Resistance, Support, etc.
+                    field_value = match.group(3).strip()  # The value
+                    
+                    if header_part not in headers_with_field_labels:
+                        headers_with_field_labels[header_part] = {}
+                    headers_with_field_labels[header_part][field_label.lower()] = field_value
+                    self.logger.info(f"Extracted {field_label} from header {header_part}: {field_value}")
+            
+            # Now remove field labels from headers
             field_labels_pattern = re.compile(
                 r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\s*\*\*(?:Resistance|Support|Target|Sentiment|Timestamp|Notes|Entry|Stop|Risk)\*\*:\s*[^\n]*',
                 re.IGNORECASE | re.MULTILINE
@@ -2766,6 +2789,169 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             if field_labels_pattern.search(analysis_text):
                 self.logger.info("Removing field labels (Resistance, Support, Target, Sentiment, etc.) from section headers")
                 analysis_text = field_labels_pattern.sub(r'\1', analysis_text)
+            
+            # Add extracted field labels as bullet points
+            for header_part, field_data in headers_with_field_labels.items():
+                escaped_header = re.escape(header_part)
+                section_pattern = rf'({escaped_header})\s*\n((?:[^\n]*\n)*?)(?=\n###|\Z)'
+                
+                def add_field_labels_as_bullets(m):
+                    header = m.group(1)
+                    existing_content = m.group(2)
+                    
+                    # Build bullet points for extracted fields
+                    bullets_to_add = []
+                    
+                    # Timestamp should be first
+                    if 'timestamp' in field_data and field_data['timestamp']:
+                        timestamp_value = field_data['timestamp']
+                        # Check if timestamp already exists
+                        if not re.search(r'-\s*\*\*Timestamp\*\*:\s*', existing_content, re.IGNORECASE):
+                            bullets_to_add.append(f"- **Timestamp**: {timestamp_value}")
+                    
+                    # Resistance should be second (after timestamp)
+                    if 'resistance' in field_data and field_data['resistance']:
+                        resistance_value = field_data['resistance']
+                        # Check if resistance already exists
+                        if not re.search(r'-\s*\*\*Resistance\*\*:\s*', existing_content, re.IGNORECASE):
+                            bullets_to_add.append(f"- **Resistance**: {resistance_value}")
+                    
+                    # Other fields (Support, Target, Sentiment, etc.) - add if not exists
+                    for field_name in ['support', 'target', 'sentiment', 'notes', 'entry', 'stop', 'risk']:
+                        if field_name in field_data and field_data[field_name]:
+                            field_value = field_data[field_name]
+                            field_label_capitalized = field_name.capitalize()
+                            # Check if field already exists
+                            if not re.search(rf'-\s*\*\*{field_label_capitalized}\*\*:\s*', existing_content, re.IGNORECASE):
+                                bullets_to_add.append(f"- **{field_label_capitalized}**: {field_value}")
+                    
+                    if bullets_to_add:
+                        # Insert bullets at the beginning of existing content
+                        return f"{header}\n{chr(10).join(bullets_to_add)}\n{existing_content}"
+                    return m.group(0)
+                
+                if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
+                    analysis_text = re.sub(section_pattern, add_field_labels_as_bullets, analysis_text, flags=re.MULTILINE | re.DOTALL)
+            
+            # CRITICAL POST-PROCESSING: Extract timestamps from transcript and add as first bullet point
+            # Extract ticker from header and find when it's first mentioned in transcript
+            def extract_ticker_from_header(header_line):
+                """Extract ticker symbol from header line"""
+                match = re.search(r'\(([A-Z]{1,5})\)', header_line)
+                return match.group(1) if match else None
+            
+            def find_ticker_timestamp_in_transcript(ticker, transcript_text):
+                """Find the timestamp when ticker is first mentioned in transcript"""
+                if not transcript_text:
+                    return None
+                
+                # Pattern to match timestamped segments: [MM:SS] or [HH:MM:SS] followed by text containing ticker
+                ticker_patterns = [
+                    rf'\b{ticker}\b',  # Exact ticker match
+                    rf'\({ticker}\)',  # Ticker in parentheses
+                ]
+                
+                # Try to find company name patterns for this ticker
+                if ticker in validated_ticker_map:
+                    company_name = validated_ticker_map[ticker]
+                    # Extract key words from company name (first 2-3 words)
+                    company_words = company_name.split()[:3]
+                    if company_words:
+                        # Create pattern for company name (case insensitive)
+                        company_pattern = r'\b' + r'\s+'.join([re.escape(word) for word in company_words]) + r'\b'
+                        ticker_patterns.append(company_pattern)
+                
+                # Search transcript for first mention
+                for pattern in ticker_patterns:
+                    # Match: [timestamp] text containing ticker
+                    timestamp_pattern = rf'\[([0-9:]+)\][^\n]*{pattern}'
+                    match = re.search(timestamp_pattern, transcript_text, re.IGNORECASE)
+                    if match:
+                        timestamp_str = match.group(1)
+                        # Format timestamp (remove leading zeros from minutes/hours if needed)
+                        # Convert [MM:SS] or [HH:MM:SS] to M:SS or H:MM:SS format
+                        parts = timestamp_str.split(':')
+                        if len(parts) == 2:
+                            # MM:SS format
+                            minutes, seconds = parts
+                            if minutes.startswith('0') and len(minutes) > 1:
+                                minutes = minutes.lstrip('0') or '0'
+                            return f"{minutes}:{seconds}"
+                        elif len(parts) == 3:
+                            # HH:MM:SS format
+                            hours, minutes, seconds = parts
+                            if hours.startswith('0') and len(hours) > 1:
+                                hours = hours.lstrip('0') or '0'
+                            return f"{hours}:{minutes}:{seconds}"
+                        return timestamp_str
+                
+                return None
+            
+            # Extract timestamps from transcript for each ticker section
+            # Find all headers and extract timestamps
+            header_pattern = re.compile(r'^(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))', re.MULTILINE)
+            headers_found = list(header_pattern.finditer(analysis_text))
+            
+            if headers_found and transcript:
+                self.logger.info(f"Extracting timestamps from transcript for {len(headers_found)} ticker sections")
+                for header_match in reversed(headers_found):  # Process in reverse to maintain positions
+                    header_line = header_match.group(1)
+                    ticker = extract_ticker_from_header(header_line)
+                    
+                    if ticker:
+                        timestamp = find_ticker_timestamp_in_transcript(ticker, transcript)
+                        if timestamp:
+                            # Find the section and add timestamp as first bullet point
+                            escaped_header = re.escape(header_line)
+                            section_pattern = rf'({escaped_header})\s*\n((?:[^\n]*\n)*?)(?=\n###|\Z)'
+                            
+                            def add_timestamp_bullet(m):
+                                header = m.group(1)
+                                existing_content = m.group(2)
+                                
+                                # Check if timestamp already exists
+                                if re.search(r'-\s*\*\*Timestamp\*\*:\s*', existing_content, re.IGNORECASE):
+                                    return m.group(0)  # Already exists
+                                
+                                # Add timestamp as first bullet point
+                                return f"{header}\n- **Timestamp**: {timestamp}\n{existing_content}"
+                            
+                            if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
+                                self.logger.info(f"Adding timestamp {timestamp} for ticker {ticker} in section {header_line[:50]}...")
+                                analysis_text = re.sub(section_pattern, add_timestamp_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
+            
+            # CRITICAL POST-PROCESSING: Ensure Resistance appears as bullet point for all sections
+            # If a section doesn't have Resistance bullet point, add it after Timestamp
+            header_pattern_all = re.compile(r'^(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))', re.MULTILINE)
+            all_headers = list(header_pattern_all.finditer(analysis_text))
+            
+            for header_match in reversed(all_headers):  # Process in reverse to maintain positions
+                header_line = header_match.group(1)
+                escaped_header = re.escape(header_line)
+                section_pattern = rf'({escaped_header})\s*\n((?:[^\n]*\n)*?)(?=\n###|\Z)'
+                
+                def ensure_resistance_bullet(m):
+                    header = m.group(1)
+                    existing_content = m.group(2)
+                    
+                    # Check if Resistance already exists as bullet point
+                    if re.search(r'-\s*\*\*Resistance\*\*:\s*', existing_content, re.IGNORECASE):
+                        return m.group(0)  # Already exists
+                    
+                    # Add Resistance bullet point (empty if no value found)
+                    # Find where to insert (after Timestamp if exists, otherwise at the beginning)
+                    timestamp_match = re.search(r'(-\s*\*\*Timestamp\*\*:\s*[^\n]+)', existing_content, re.IGNORECASE)
+                    if timestamp_match:
+                        # Insert after timestamp
+                        timestamp_line = timestamp_match.group(1)
+                        rest_content = existing_content.replace(timestamp_line, '', 1).lstrip('\n')
+                        return f"{header}\n{timestamp_line}\n- **Resistance**:\n{rest_content}"
+                    else:
+                        # Insert at beginning (before other bullet points)
+                        return f"{header}\n- **Resistance**:\n{existing_content}"
+                
+                if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
+                    analysis_text = re.sub(section_pattern, ensure_resistance_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
             
             # CRITICAL POST-PROCESSING: Fix headers with content appended (e.g., "Company (TICKER)- Content here")
             # Pattern: ### Company Name (TICKER)- Content that should be in bullet points
