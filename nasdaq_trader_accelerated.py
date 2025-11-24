@@ -2575,6 +2575,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             
             # CRITICAL POST-PROCESSING: Remove "Piyasalar" and related Turkish suffixes from section headers
             # Fix patterns like "SPX (SPX)Piyasalar" -> "SPX (SPX)" or "S&P 500 Index (SPX)Piyasa Endeksi" -> "S&P 500 Index (SPX)"
+            # IMPORTANT: Suffixes are directly attached to closing parenthesis with NO space: (TICKER)SUFFIX
             piyasa_patterns = [
                 r'Piyasalar',
                 r'Piyasa Endeksi',
@@ -2585,29 +2586,32 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 r'Endeks',  # Add "Endeks" suffix removal
             ]
             for piyasa_pattern in piyasa_patterns:
-                pattern_piyasalar = rf'([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*{piyasa_pattern}'
+                # Pattern matches: ### Company Name (TICKER)SUFFIX (no space between ) and SUFFIX)
+                pattern_piyasalar = rf'(###\s+[^\n(]+?\s*\([A-Z]{{1,5}}\)){piyasa_pattern}'
                 if re.search(pattern_piyasalar, analysis_text, re.IGNORECASE):
                     self.logger.info(f"Removing '{piyasa_pattern}' from section headers")
-                    analysis_text = re.sub(pattern_piyasalar, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
+                    analysis_text = re.sub(pattern_piyasalar, r'\1', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
             # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)"
-            # Use a more direct approach: match the entire header line and remove timestamp part
+            # IMPORTANT: Timestamp is directly attached to closing parenthesis with NO space: (TICKER)**Timestamp**
             # Pattern: ### Company Name (TICKER)**Timestamp**: 0:07
-            pattern_timestamp_direct = r'(###\s+[^*\n(]+?\s*\([A-Z]{1,5}\))\s*\*\*Timestamp\*\*:\s*[0-9:]+'
+            # Use [^\n(] instead of [^*\n(] to allow matching through asterisks
+            pattern_timestamp_direct = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\*\*Timestamp\*\*:\s*[0-9:]+'
             if re.search(pattern_timestamp_direct, analysis_text, re.IGNORECASE):
                 self.logger.info("Removing timestamps from section headers (direct pattern)")
                 analysis_text = re.sub(pattern_timestamp_direct, r'\1', analysis_text, flags=re.IGNORECASE)
             
             # Also handle " - Kripto Para" format (e.g., "Bitcoin - Kripto Para")
-            pattern_kripto_standalone = r'###\s+([^*\n(]+?)\s*-\s*Kripto Para'
+            pattern_kripto_standalone = r'###\s+([^\n(]+?)\s*-\s*Kripto Para'
             if re.search(pattern_kripto_standalone, analysis_text, re.IGNORECASE):
                 self.logger.info("Removing ' - Kripto Para' suffix from section headers")
                 analysis_text = re.sub(pattern_kripto_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
             # Final catch-all: Remove any remaining timestamp patterns in headers (more aggressive)
             # This catches any timestamp-like pattern that might have been missed
-            pattern_timestamp_catchall = r'(###\s+[^*\n(]+?\s*\([A-Z]{1,5}\))\s*(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*[0-9:]+'
+            # Use [^\n(] to allow matching through asterisks
+            pattern_timestamp_catchall = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*[0-9:]+'
             if re.search(pattern_timestamp_catchall, analysis_text, re.IGNORECASE):
                 self.logger.info("Removing timestamps from section headers (catch-all pattern)")
                 analysis_text = re.sub(pattern_timestamp_catchall, r'\1', analysis_text, flags=re.IGNORECASE)
