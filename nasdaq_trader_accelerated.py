@@ -2756,6 +2756,17 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 self.logger.info("Removing ' - Kripto Para' suffix from section headers")
                 analysis_text = re.sub(pattern_kripto_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
+            # CRITICAL POST-PROCESSING: Remove field labels from headers
+            # Pattern: ### Company (TICKER)**Resistance**: value or ### Company (TICKER)**Support**: value, etc.
+            # These field labels should only appear as bullet points, not in headers
+            field_labels_pattern = re.compile(
+                r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\s*\*\*(?:Resistance|Support|Target|Sentiment|Timestamp|Notes|Entry|Stop|Risk)\*\*:\s*[^\n]*',
+                re.IGNORECASE | re.MULTILINE
+            )
+            if field_labels_pattern.search(analysis_text):
+                self.logger.info("Removing field labels (Resistance, Support, Target, Sentiment, etc.) from section headers")
+                analysis_text = field_labels_pattern.sub(r'\1', analysis_text)
+            
             # CRITICAL POST-PROCESSING: Fix headers with content appended (e.g., "Company (TICKER)- Content here")
             # Pattern: ### Company Name (TICKER)- Content that should be in bullet points
             def extract_content_from_header(match):
@@ -2845,8 +2856,9 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 self.logger.info("Replacing 'Strategy Inc (MSTR)**Timestamp**: X:XX' in headers with 'Strategy Inc Class A (MSTR)'")
                 analysis_text = re.sub(pattern_mstr_header1, r'\1Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
             
-            # Pattern 2: In headers without timestamp
-            pattern_mstr_header2 = r'(###\s+)Strategy Inc\s*\(MSTR\)(?:[^\n]*)?'
+            # Pattern 2: In headers without timestamp (but may have field labels)
+            # Match: ### Strategy Inc (MSTR)**Resistance**: or ### Strategy Inc (MSTR) or any variation
+            pattern_mstr_header2 = r'(###\s+)Strategy Inc\s*\(MSTR\)(?:\*\*[^\n]*)?'
             if re.search(pattern_mstr_header2, analysis_text, re.IGNORECASE):
                 self.logger.info("Replacing 'Strategy Inc (MSTR)' in headers with 'Strategy Inc Class A (MSTR)'")
                 analysis_text = re.sub(pattern_mstr_header2, r'\1Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
