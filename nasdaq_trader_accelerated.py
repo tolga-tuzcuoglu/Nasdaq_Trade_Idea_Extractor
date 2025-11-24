@@ -2521,10 +2521,10 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                         self.logger.info(f"Validated corrected ticker {correct_ticker} -> {validated_company_name}")
                 
                 # Use validated company name if available, otherwise use the correct ticker
-                # Special case: MSTR should use "MicroStrategy Inc." even if Yahoo Finance shows "Strategy Inc"
-                if correct_ticker == 'MSTR' and validated_company_name == 'Strategy Inc':
-                    final_company_name = 'MicroStrategy Inc.'
-                    self.logger.info(f"Using preferred company name for MSTR: MicroStrategy Inc. (instead of {validated_company_name})")
+                # Special case: MSTR should use "Strategy Inc Class A" (correct name per Nasdaq - Class A common stock)
+                if correct_ticker == 'MSTR':
+                    final_company_name = 'Strategy Inc Class A'
+                    self.logger.info(f"Using preferred company name for MSTR: Strategy Inc Class A (instead of {validated_company_name})")
                 else:
                     final_company_name = validated_company_name if validated_company_name and validated_company_name != correct_ticker else correct_ticker
                 
@@ -2646,16 +2646,24 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 r'Piyasa Endeksi',
                 r'Piyasa Volatilite Endeksi',
                 r'Kripto Para',
+                r'Kripto Varlık',  # Alternative Turkish term for crypto
                 r'PİYASA GÖSTERGESİ',
+                r'Piyasa Göstergesi',  # Handle mixed case with space
                 r'Market Indicator',
                 r'Endeks',  # Add "Endeks" suffix removal
             ]
             for piyasa_pattern in piyasa_patterns:
                 # Pattern matches: ### Company Name (TICKER)SUFFIX (no space between ) and SUFFIX)
-                pattern_piyasalar = rf'(###\s+[^\n(]+?\s*\([A-Z]{{1,5}}\)){piyasa_pattern}'
+                pattern_piyasalar = rf'(###\s+[^\n(]+?\s*\([A-Z]{{1,5}}\)){re.escape(piyasa_pattern)}'
                 if re.search(pattern_piyasalar, analysis_text, re.IGNORECASE):
                     self.logger.info(f"Removing '{piyasa_pattern}' from section headers")
                     analysis_text = re.sub(pattern_piyasalar, r'\1', analysis_text, flags=re.IGNORECASE)
+            
+            # Also handle " - Kripto Varlık" format (e.g., "Bitcoin - Kripto Varlık")
+            pattern_kripto_varlik_standalone = r'###\s+([^\n(]+?)\s*-\s*Kripto Varlık'
+            if re.search(pattern_kripto_varlik_standalone, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing ' - Kripto Varlık' suffix from section headers")
+                analysis_text = re.sub(pattern_kripto_varlik_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
             # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)"
@@ -2687,19 +2695,26 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 self.logger.info("Removing redundant company name suffixes")
                 analysis_text = re.sub(pattern_redundant, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
-            # CRITICAL POST-PROCESSING: Fix MSTR company name - use "MicroStrategy Inc." instead of "Strategy Inc"
-            # Must happen AFTER timestamp removal to catch all cases
-            # Pattern 1: In headers
-            pattern_mstr_header = r'(###\s+)Strategy Inc\s*\(MSTR\)'
+            # CRITICAL POST-PROCESSING: Fix MSTR company name - use "Strategy Inc Class A" (correct name per Nasdaq)
+            # MSTR is Class A common stock of Strategy Inc (formerly MicroStrategy Incorporated)
+            # Must happen AFTER timestamp removal and suffix removal to catch all cases
+            # Pattern 1: In headers - handle with or without suffixes
+            pattern_mstr_header = r'(###\s+)Strategy Inc\s*\(MSTR\)(?:[^\n]*)?'
             if re.search(pattern_mstr_header, analysis_text, re.IGNORECASE):
-                self.logger.info("Replacing 'Strategy Inc (MSTR)' in headers with 'MicroStrategy Inc. (MSTR)'")
-                analysis_text = re.sub(pattern_mstr_header, r'\1MicroStrategy Inc. (MSTR)', analysis_text, flags=re.IGNORECASE)
+                self.logger.info("Replacing 'Strategy Inc (MSTR)' in headers with 'Strategy Inc Class A (MSTR)'")
+                analysis_text = re.sub(pattern_mstr_header, r'\1Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
             
             # Pattern 2: Anywhere else in the text
             pattern_mstr = r'Strategy Inc\s*\(MSTR\)'
             if re.search(pattern_mstr, analysis_text, re.IGNORECASE):
-                self.logger.info("Replacing 'Strategy Inc (MSTR)' with 'MicroStrategy Inc. (MSTR)'")
-                analysis_text = re.sub(pattern_mstr, 'MicroStrategy Inc. (MSTR)', analysis_text, flags=re.IGNORECASE)
+                self.logger.info("Replacing 'Strategy Inc (MSTR)' with 'Strategy Inc Class A (MSTR)'")
+                analysis_text = re.sub(pattern_mstr, 'Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
+            
+            # Pattern 3: Also handle "MicroStrategy Inc." if it appears (legacy name)
+            pattern_mstr_legacy = r'MicroStrategy Inc\.\s*\(MSTR\)'
+            if re.search(pattern_mstr_legacy, analysis_text, re.IGNORECASE):
+                self.logger.info("Replacing 'MicroStrategy Inc. (MSTR)' with 'Strategy Inc Class A (MSTR)'")
+                analysis_text = re.sub(pattern_mstr_legacy, 'Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix "Company Name (Unknown Ticker) - Company Name" format
             pattern_unknown_redundant = r'([^*\n(]+?)\s*\(Unknown Ticker\)\s*-\s*\1'
