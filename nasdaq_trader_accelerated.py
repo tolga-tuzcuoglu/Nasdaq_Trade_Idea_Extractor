@@ -67,6 +67,9 @@ def load_config(config_path="config.yaml"):
             }
         }
 
+# Constants for post-processing
+MAX_TIMESTAMP_REMOVAL_ITERATIONS = 5  # Maximum iterations for timestamp removal loop
+
 class AcceleratedNasdaqTrader:
     def __init__(self, config_path="config.yaml"):
         self.config = load_config(config_path)
@@ -1520,13 +1523,16 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                             try:
                                 from datetime import datetime as dt
                                 upload_date_formatted = dt.strptime(upload_date, '%Y%m%d').strftime('%Y-%m-%d')
-                            except:
+                            except (ValueError, AttributeError) as e:
+                                self.logger.warning(f"Failed to parse upload date '{upload_date}': {e}")
                                 upload_date_formatted = upload_date
                         else:
                             upload_date_formatted = None
                         
-                        view_count = info.get('view_count', None)
-                        like_count = info.get('like_count', None)
+                        # Note: view_count and like_count are extracted but not used in reports per user requirements
+                        # Keeping extraction for potential future use or debugging
+                        _view_count = info.get('view_count', None)  # Unused but kept for debugging
+                        _like_count = info.get('like_count', None)  # Unused but kept for debugging
                         duration = info.get('duration', None)
                         description = info.get('description', '') or info.get('descriptions', '')
                         if isinstance(description, list):
@@ -1551,8 +1557,8 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                             'title': video_title or 'Unknown Title',
                             'channel': channel_name or 'Unknown Channel',
                             'upload_date': upload_date_formatted,
-                            'view_count': view_count,
-                            'like_count': like_count,
+                            'view_count': _view_count,
+                            'like_count': _like_count,
                             'duration': duration_formatted,
                             'duration_seconds': duration,
                             'description': description[:500] if description else None,
@@ -1776,7 +1782,8 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                 try:
                     from datetime import datetime as dt
                     upload_date_formatted = dt.strptime(upload_date, '%Y%m%d').strftime('%Y-%m-%d')
-                except:
+                except (ValueError, AttributeError) as e:
+                    self.logger.warning(f"Failed to parse upload date '{upload_date}': {e}")
                     upload_date_formatted = upload_date
             else:
                 upload_date_formatted = None
@@ -1799,7 +1806,8 @@ Return ONLY valid JSON array with ticker symbols in uppercase."""
                         duration_formatted = f"{hours}:{minutes:02d}:{seconds:02d}"
                     else:
                         duration_formatted = f"{minutes}:{seconds:02d}"
-                except:
+                except (ValueError, TypeError, ZeroDivisionError) as e:
+                    self.logger.warning(f"Failed to format duration '{duration}': {e}")
                     duration_formatted = str(duration)
             
             # Build metadata dictionary
@@ -2131,10 +2139,11 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 video_info_lines.append(f"- Upload Date: {upload_date}")
             if duration:
                 video_info_lines.append(f"- Duration: {duration}")
-            if view_count is not None:
-                video_info_lines.append(f"- Views: {view_count:,}")
-            if like_count is not None:
-                video_info_lines.append(f"- Likes: {like_count:,}")
+            # Removed Views and Likes from video info per user requirements
+            # if view_count is not None:
+            #     video_info_lines.append(f"- Views: {view_count:,}")
+            # if like_count is not None:
+            #     video_info_lines.append(f"- Likes: {like_count:,}")
             if description:
                 if len(description) > 200:
                     video_info_lines.append(f"- Description: {description[:200]}...")
@@ -2147,13 +2156,15 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 report_info_lines.append(f"- **Video Upload Date**: {upload_date}")
             if duration:
                 report_info_lines.append(f"- **Video Duration**: {duration}")
-            if view_count is not None:
-                report_info_lines.append(f"- **Views**: {view_count:,}")
-            if like_count is not None:
-                report_info_lines.append(f"- **Likes**: {like_count:,}")
+            # Removed Views and Likes from report info per user requirements
+            # if view_count is not None:
+            #     report_info_lines.append(f"- **Views**: {view_count:,}")
+            # if like_count is not None:
+            #     report_info_lines.append(f"- **Likes**: {like_count:,}")
             report_info_str = "\n            ".join(report_info_lines) if report_info_lines else ""
             
             # Removed summary metadata fields: Video Upload Date, Video Duration, Views, Likes
+            # Note: view_count and like_count are still extracted and stored in metadata but not displayed in reports
             # These are no longer shown in the summary section
             summary_metadata_str = ""
             
@@ -2666,44 +2677,60 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 analysis_text = re.sub(pattern_kripto_varlik_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
-            # SIMPLE APPROACH: Remove timestamps from ANY header line, then add them as bullet points
-            # Pattern matches: ### Anything**Timestamp**: X:XX or ### Anything Timestamp: X:XX
+            # SIMPLE APPROACH: Extract timestamps from headers, remove them, then add as bullet points
+            
+            # Pre-compile regex patterns for performance
+            TIMESTAMP_PATTERN_ASTERISKS = re.compile(r'\*\*Timestamp\*\*:\s*([0-9:]+)', re.IGNORECASE)
+            TIMESTAMP_PATTERN_PLAIN = re.compile(r'[Tt]imestamp\s*:\s*([0-9:]+)', re.IGNORECASE)
+            HEADER_PATTERN = re.compile(r'^(###\s+.*?\([A-Z]{1,5}\))', re.MULTILINE)
             
             # Step 1: Extract timestamps from headers BEFORE removing them
             headers_with_timestamps = {}
             
-            # Match any header line that contains a timestamp
-            # Pattern: ### ... (TICKER)**Timestamp**: X:XX or variations
-            header_timestamp_pattern = r'^(###\s+.*?\([A-Z]{1,5}\))(?:\s*)?\*\*Timestamp\*\*:\s*([0-9:]+)'
-            for match in re.finditer(header_timestamp_pattern, analysis_text, re.MULTILINE | re.IGNORECASE):
-                header_part = match.group(1).strip()
-                timestamp_value = match.group(2)
-                headers_with_timestamps[header_part] = timestamp_value
-                self.logger.info(f"Extracted timestamp from header: {header_part} -> {timestamp_value}")
+            # Find all headers and check if they have timestamps
+            for header_match in HEADER_PATTERN.finditer(analysis_text):
+                header_line_start = header_match.start()
+                header_line_end = analysis_text.find('\n', header_line_start)
+                if header_line_end == -1:
+                    header_line_end = len(analysis_text)
+                header_line = analysis_text[header_line_start:header_line_end]
+                
+                # Check for timestamp with asterisks
+                ts_match = TIMESTAMP_PATTERN_ASTERISKS.search(header_line)
+                if ts_match:
+                    header_part = header_match.group(1).strip()
+                    timestamp_value = ts_match.group(1)
+                    headers_with_timestamps[header_part] = timestamp_value
+                    self.logger.info(f"Extracted timestamp from header: {header_part} -> {timestamp_value}")
+                else:
+                    # Check for timestamp without asterisks
+                    ts_match = TIMESTAMP_PATTERN_PLAIN.search(header_line)
+                    if ts_match:
+                        header_part = header_match.group(1).strip()
+                        timestamp_value = ts_match.group(1)
+                        headers_with_timestamps[header_part] = timestamp_value
+                        self.logger.info(f"Extracted timestamp from header: {header_part} -> {timestamp_value}")
             
             # Step 2: Remove ALL timestamp patterns from headers (simple and aggressive)
-            # Pattern 1: **Timestamp**: X:XX (with asterisks)
-            analysis_text = re.sub(r'(\*\*Timestamp\*\*:\s*[0-9:]+)', '', analysis_text, flags=re.IGNORECASE)
+            # Remove **Timestamp**: X:XX pattern from anywhere
+            analysis_text = TIMESTAMP_PATTERN_ASTERISKS.sub('', analysis_text)
             
-            # Pattern 2: Timestamp: X:XX (without asterisks, just in case)
-            # But only if it's on a header line (starts with ###)
-            def remove_timestamp_from_header_line(match):
+            # Remove Timestamp: X:XX pattern but only from header lines
+            def remove_timestamp_from_header(match):
                 header_line = match.group(0)
-                # Remove "Timestamp: X:XX" pattern
-                cleaned = re.sub(r'\s*[Tt]imestamp\s*:\s*[0-9:]+', '', header_line, flags=re.IGNORECASE)
-                return cleaned
+                cleaned = TIMESTAMP_PATTERN_PLAIN.sub('', header_line)
+                return cleaned.strip()
             
-            analysis_text = re.sub(r'^(###[^\n]*?)\s*[Tt]imestamp\s*:\s*[0-9:]+', remove_timestamp_from_header_line, analysis_text, flags=re.MULTILINE | re.IGNORECASE)
+            analysis_text = re.sub(r'^(###[^\n]+)', remove_timestamp_from_header, analysis_text, flags=re.MULTILINE)
             
             # Step 3: Add extracted timestamps as bullet points
-            for header_key, timestamp_value in headers_with_timestamps.items():
-                # Find the section starting with this header
-                # Escape the header for regex matching
+            # Helper function to add timestamp bullet point
+            def add_timestamp_bullet_helper(header_key, timestamp_value, text):
                 escaped_header = re.escape(header_key)
-                # Match: header + newline + content until next ### or end
+                # Match: header + optional whitespace + newline + content until next ### or end
                 section_pattern = rf'({escaped_header})\s*\n((?:[^\n]*\n)*?)(?=\n###|\Z)'
                 
-                def add_timestamp_bullet(match):
+                def add_bullet(match):
                     header = match.group(1)
                     content = match.group(2)
                     
@@ -2714,9 +2741,14 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     # Add timestamp as first bullet point
                     return f"{header}\n- **Timestamp**: {timestamp_value}\n{content}"
                 
-                if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
+                if re.search(section_pattern, text, re.MULTILINE | re.DOTALL):
                     self.logger.info(f"Adding timestamp bullet point for: {header_key} -> {timestamp_value}")
-                    analysis_text = re.sub(section_pattern, add_timestamp_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
+                    return re.sub(section_pattern, add_bullet, text, flags=re.MULTILINE | re.DOTALL)
+                return text
+            
+            # Apply timestamp bullet point addition for each extracted header
+            for header_key, timestamp_value in headers_with_timestamps.items():
+                analysis_text = add_timestamp_bullet_helper(header_key, timestamp_value, analysis_text)
             
             # Also handle " - Kripto Para" format (e.g., "Bitcoin - Kripto Para")
             pattern_kripto_standalone = r'###\s+([^\n(]+?)\s*-\s*Kripto Para'
@@ -3081,6 +3113,14 @@ The following are market indices, NOT individual stock tickers. When mentioned i
 </html>"""
         return html_template
     
+    def _format_bold_text(self, text):
+        """Helper function to convert markdown bold (**text**) to HTML <strong>text</strong>"""
+        return re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+    
+    def _format_italic_text(self, text):
+        """Helper function to convert markdown italic (*text*) to HTML <em>text</em>"""
+        return re.sub(r'\*(.*?)\*', r'<em>\1</em>', text)
+    
     def format_analysis_html(self, analysis):
         """Format the analysis text into HTML structure - Simple and robust approach"""
         lines = analysis.split('\n')
@@ -3116,29 +3156,25 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 if not in_list:
                     html_parts.append('<ul>')
                     in_list = True
-                # Clean up the line content
+                # Clean up the line content and format bold text
                 content = line[2:].strip()
-                # Handle bold text properly - replace **text** with <strong>text</strong>
-                import re
-                content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
+                content = self._format_bold_text(content)
                 html_parts.append(f'<li>{content}</li>')
             # Handle numbered entries (HIGH POTENTIAL TRADES)
             elif line.startswith('**') and '**:' in line:
                 if in_list:
                     html_parts.append('</ul>')
                     in_list = False
-                # Handle bold text in numbered entries
-                import re
-                content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+                # Format bold text in numbered entries
+                content = self._format_bold_text(line)
                 html_parts.append(f'<p>{content}</p>')
             # Handle reasoning lines (start with *)
             elif line.startswith('   *') or line.startswith('*'):
                 if in_list:
                     html_parts.append('</ul>')
                     in_list = False
-                # Handle italic text for reasoning
-                import re
-                content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line.strip())
+                # Format italic text for reasoning
+                content = self._format_italic_text(line.strip())
                 html_parts.append(f'<p>{content}</p>')
             else:
                 # Regular paragraph
@@ -3146,9 +3182,8 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     html_parts.append('</ul>')
                     in_list = False
                 if line and not line.startswith('[') and not line.startswith('**'):
-                    # Handle bold text in paragraphs
-                    import re
-                    content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+                    # Format bold text in paragraphs
+                    content = self._format_bold_text(line)
                     html_parts.append(f'<p>{content}</p>')
         
         # Close any open list
