@@ -2530,7 +2530,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 
                 # Pattern 0: Replace when incorrect ticker appears as company name "### INCORRECT_TICKER (CORRECT_TICKER)"
                 # This handles cases like "### ASTR (ALAB)" -> "### Astera Labs Inc. (ALAB)"
-                # Or "### ASDR (MSTR)" -> "### MicroStrategy Inc. (MSTR)"
+                # Or "### ASDR (MSTR)" -> "### Strategy Inc Class A (MSTR)"
                 pattern0 = rf'###\s+{re.escape(incorrect_ticker)}\s*\(([^)]+)\)'
                 replacement0 = rf'### {final_company_name} ({correct_ticker})'
                 if re.search(pattern0, analysis_text, re.IGNORECASE):
