@@ -2153,16 +2153,9 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 report_info_lines.append(f"- **Likes**: {like_count:,}")
             report_info_str = "\n            ".join(report_info_lines) if report_info_lines else ""
             
-            summary_metadata_lines = []
-            if upload_date:
-                summary_metadata_lines.append(f"- **Video Upload Date**: {upload_date}")
-            if duration:
-                summary_metadata_lines.append(f"- **Video Duration**: {duration}")
-            if view_count is not None:
-                summary_metadata_lines.append(f"- **Views**: {view_count:,}")
-            if like_count is not None:
-                summary_metadata_lines.append(f"- **Likes**: {like_count:,}")
-            summary_metadata_str = "\n            ".join(summary_metadata_lines) if summary_metadata_lines else ""
+            # Removed summary metadata fields: Video Upload Date, Video Duration, Views, Likes
+            # These are no longer shown in the summary section
+            summary_metadata_str = ""
             
             # Create professional trading analysis prompt
             prompt = f"""
@@ -2227,15 +2220,20 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             - If transcript mentions "VIX" - this is CBOE Volatility Index (VIX), not a stock ticker
             - NEVER confuse index names with stock ticker symbols
             
-            ### [TICKER] - [Company/Asset Name] ([TICKER_CODE])
+            ### [Company/Asset Name] ([TICKER_CODE])
             OR
-            ### [Index Name] ([INDEX_CODE]) - [Market Indicator]
-            - **Timestamp**: [EXACT time when ticker is first mentioned in video - example: 2:45, 5:23, 12:45, 1:30:15 - ONLY actual time from video]
+            ### [Index Name] ([INDEX_CODE])
+            - **Timestamp**: [EXACT time when ticker is first mentioned in video - example: 0:07, 2:45, 5:23, 12:45, 1:30:15 - ONLY actual time from video - MUST be the FIRST bullet point, NEVER in the header]
             - **Sentiment**: [Bullish/Bearish/Neutral] - [Reasoning]
             - **Resistance**: [Resistance level if mentioned - leave blank if not]
             - **Support**: [Support level if mentioned - leave blank if not]
             - **Target**: [Target price if mentioned - leave blank if not]
             - **Notes**: [Important notes, technical analysis, risk factors, trading strategy]
+            
+            **CRITICAL TIMESTAMP REQUIREMENT**: 
+            - Timestamps MUST appear as bullet points (e.g., "- **Timestamp**: 0:07")
+            - Timestamps MUST NEVER appear in section headers (e.g., "### Company Name (TICKER)**Timestamp**: 0:07" is WRONG)
+            - Section headers should ONLY contain: "### Company Name (TICKER)" without any timestamp
             
             [REPEAT THIS SECTION FOR EVERY TICKER/ASSET MENTIONED IN TRANSCRIPT - NO TICKER CAN BE SKIPPED]
             
