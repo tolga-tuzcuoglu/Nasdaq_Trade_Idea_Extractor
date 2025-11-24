@@ -2809,12 +2809,22 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                         header_with_content = m.group(1)
                         existing_content = m.group(2)
                         
-                        # Check if content already exists as bullet point
-                        if re.search(r'-\s*\*\*(?:Timestamp|Sentiment|Resistance|Support|Target|Notes)', existing_content, re.IGNORECASE):
-                            # Content exists, just clean header
-                            return f"{header_part}\n{existing_content}"
+                        # Check if appended content already exists in Notes (avoid duplicates)
+                        notes_pattern = r'-\s*\*\*Notes\*\*:\s*(.+?)(?=\n-|\Z)'
+                        notes_match = re.search(notes_pattern, existing_content, re.IGNORECASE | re.DOTALL)
                         
-                        # Format appended content as Notes bullet point
+                        if notes_match:
+                            existing_notes = notes_match.group(1).strip()
+                            # Check if appended content is already in Notes
+                            if appended_content.strip() in existing_notes or existing_notes in appended_content.strip():
+                                # Content already exists, just clean header
+                                return f"{header_part}\n{existing_content}"
+                            # Prepend to existing Notes
+                            new_notes = f"- **Notes**: {appended_content} {existing_notes}"
+                            updated_content = re.sub(notes_pattern, new_notes, existing_content, flags=re.IGNORECASE | re.DOTALL)
+                            return f"{header_part}\n{updated_content}"
+                        
+                        # No Notes bullet point exists, add as first bullet point
                         bullet_content = f"- **Notes**: {appended_content}"
                         return f"{header_part}\n{bullet_content}\n{existing_content}"
                     
