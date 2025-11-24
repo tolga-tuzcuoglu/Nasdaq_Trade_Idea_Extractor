@@ -70,3 +70,6 @@ virtualenv/
 # Project generation prompt (should not be public)
 project_generation_prompt.txt
 
+# Status documentation (local only, should not be public)
+SYSTEM_STATUS.md
+

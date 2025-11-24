@@ -126,7 +126,7 @@ CRITICAL REQUIREMENTS:
 7. Use ONLY information from transcript - NO assumptions, NO external knowledge, NO guessing
 8. Extract timestamps EXACTLY from [MM:SS] or [HH:MM:SS] brackets in transcript when ticker is first mentioned
 9. Use validated company names from ticker reference when available (never invent company names)
-10. Mark high_potential=true ONLY for tickers with explicit BUY/SELL/HOLD recommendations AND technical analysis in transcript
+10. Mark high_potential=true ONLY for tickers with explicit BUY recommendations (BULLISH sentiment) AND technical analysis (Entry/Stop/Target/Risk/Risk-Reward) in transcript. Do NOT mark NEUTRAL or BEARISH trades as high_potential.
 11. For prices: Use EXACT values from transcript, or null if not mentioned - NEVER guess or estimate
 12. For dates: Use EXACT format from transcript - if only day/month mentioned, do NOT add year
 13. For summary: Base ONLY on transcript content - NO external interpretation
@@ -337,15 +337,32 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
                 report.append("")
         
         # High Potential Trades - use consolidated tickers
+        # Only include BULLISH/BUY sentiment trades with high_potential flag
         consolidated_tickers = list(ticker_dict.values()) if tickers else []
-        high_potential = [t for t in consolidated_tickers if t.get('high_potential', False)]
+        high_potential = [
+            t for t in consolidated_tickers 
+            if t.get('high_potential', False) 
+            and t.get('sentiment', '').upper() in ['BULLISH', 'BUY']
+        ]
         if high_potential:
             report.append("## 🎯 HIGH POTENTIAL TRADES")
             report.append("")
             
             for i, ticker_data in enumerate(high_potential, 1):
-                ticker = ticker_data.get('ticker', 'UNKNOWN')
+                ticker = ticker_data.get('ticker', 'UNKNOWN').upper()
                 company_name = ticker_data.get('company_name', 'Unknown Company')
+                
+                # Ensure company name is set correctly (in case it wasn't set during correction)
+                if not company_name or company_name == 'Unknown Company':
+                    # Try to get from validated map first
+                    company_name = self.validated_ticker_map.get(ticker, None)
+                    # If not in validated map, check if it's a required asset
+                    if not company_name and ticker in REQUIRED_ASSETS:
+                        company_name = self._get_asset_name(ticker)
+                    # Final fallback
+                    if not company_name:
+                        company_name = 'Unknown Company'
+                
                 sentiment = ticker_data.get('sentiment', 'BUY').upper()
                 
                 entry = ticker_data.get('entry_price', '')

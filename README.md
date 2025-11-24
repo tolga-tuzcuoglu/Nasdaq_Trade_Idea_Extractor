@@ -137,27 +137,26 @@ The system generates comprehensive trading reports with:
 ### **📊 Report Structure**
 The system generates reports with the following sections:
 
-1. **📊 REPORT INFORMATION**
-   - Video source, title, channel
-   - Video date (if mentioned in transcript)
-
-2. **📝 SHORT SUMMARY**
-   - Video upload date and duration
+1. **📝 SHORT SUMMARY**
    - 2-3 sentence summary of key trading insights from the video
+   - Based solely on transcript content
 
-3. **📈 TRADING OPPORTUNITIES**
-   - Detailed analysis for each ticker mentioned
-   - Timestamp when ticker was first mentioned
+2. **📈 TRADING OPPORTUNITIES**
+   - Detailed analysis for each ticker mentioned with trading details
+   - Timestamp when ticker was first mentioned (first field)
    - Sentiment (Bullish/Bearish/Neutral) with reasoning
    - Support and resistance levels
    - Target prices
    - Technical analysis notes
+   - Only includes tickers/assets with actual trading analysis
 
-4. **🎯 HIGH POTENTIAL TRADES** (when applicable)
-   - Tickers with explicit BUY/SELL recommendations
+3. **🎯 HIGH POTENTIAL TRADES** (when applicable)
+   - Only BULLISH/BUY sentiment trades with high_potential flag
    - Entry prices, stop losses, targets
    - Risk/reward ratios
    - Complete trading setup information
+   - Automatically filters out NEUTRAL and BEARISH trades
+   - Proper company names for all tickers (e.g., ALAB shows as "Astera Labs, Inc.")
 
 ### **🛡️ Anti-Hallucination Measures**
 - **Strict Source Validation**: Only uses information from video transcripts
@@ -174,7 +173,7 @@ The system generates reports with the following sections:
 - **Text Reports**: Clean, professional trading analysis in markdown format
 - **JSON Data**: Structured data for programmatic access (includes all extracted ticker information)
 - **HTML Reports**: Mobile-friendly, browser-ready reports with professional styling
-  - **Note**: Reports include video upload date and duration, but exclude Views and Likes counts
+  - **Note**: Reports focus on trading analysis only - no video metadata clutter
 
 ## ⚙️ Configuration
 
