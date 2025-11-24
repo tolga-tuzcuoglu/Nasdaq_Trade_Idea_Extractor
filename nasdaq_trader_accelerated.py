@@ -2670,24 +2670,32 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # IMPORTANT: Timestamp is directly attached to closing parenthesis with NO space: (TICKER)**Timestamp**
             # Pattern: ### Company Name (TICKER)**Timestamp**: 0:07
             # Use [^\n(] instead of [^*\n(] to allow matching through asterisks
-            pattern_timestamp_direct = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\*\*Timestamp\*\*:\s*[0-9:]+'
-            if re.search(pattern_timestamp_direct, analysis_text, re.IGNORECASE):
-                self.logger.info("Removing timestamps from section headers (direct pattern)")
-                analysis_text = re.sub(pattern_timestamp_direct, r'\1', analysis_text, flags=re.IGNORECASE)
+            # Apply multiple times to catch all variations
+            timestamp_removed = True
+            iterations = 0
+            while timestamp_removed and iterations < 5:  # Max 5 iterations to prevent infinite loops
+                timestamp_removed = False
+                iterations += 1
+                
+                # Pattern 1: Direct attachment with **Timestamp**: format
+                pattern_timestamp_direct = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\*\*Timestamp\*\*:\s*[0-9:]+'
+                if re.search(pattern_timestamp_direct, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing timestamps from section headers (direct pattern, iteration {iterations})")
+                    analysis_text = re.sub(pattern_timestamp_direct, r'\1', analysis_text, flags=re.IGNORECASE)
+                    timestamp_removed = True
+                
+                # Pattern 2: Catch-all for any timestamp variation
+                pattern_timestamp_catchall = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*[0-9:]+'
+                if re.search(pattern_timestamp_catchall, analysis_text, re.IGNORECASE):
+                    self.logger.info(f"Removing timestamps from section headers (catch-all pattern, iteration {iterations})")
+                    analysis_text = re.sub(pattern_timestamp_catchall, r'\1', analysis_text, flags=re.IGNORECASE)
+                    timestamp_removed = True
             
             # Also handle " - Kripto Para" format (e.g., "Bitcoin - Kripto Para")
             pattern_kripto_standalone = r'###\s+([^\n(]+?)\s*-\s*Kripto Para'
             if re.search(pattern_kripto_standalone, analysis_text, re.IGNORECASE):
                 self.logger.info("Removing ' - Kripto Para' suffix from section headers")
                 analysis_text = re.sub(pattern_kripto_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
-            
-            # Final catch-all: Remove any remaining timestamp patterns in headers (more aggressive)
-            # This catches any timestamp-like pattern that might have been missed
-            # Use [^\n(] to allow matching through asterisks
-            pattern_timestamp_catchall = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*[0-9:]+'
-            if re.search(pattern_timestamp_catchall, analysis_text, re.IGNORECASE):
-                self.logger.info("Removing timestamps from section headers (catch-all pattern)")
-                analysis_text = re.sub(pattern_timestamp_catchall, r'\1', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix redundant company names (e.g., "Apple Inc. (AAPL) - Apple Inc.")
             pattern_redundant = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*\1'
@@ -2698,19 +2706,25 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             # CRITICAL POST-PROCESSING: Fix MSTR company name - use "Strategy Inc Class A" (correct name per Nasdaq)
             # MSTR is Class A common stock of Strategy Inc (formerly MicroStrategy Incorporated)
             # Must happen AFTER timestamp removal and suffix removal to catch all cases
-            # Pattern 1: In headers - handle with or without suffixes
-            pattern_mstr_header = r'(###\s+)Strategy Inc\s*\(MSTR\)(?:[^\n]*)?'
-            if re.search(pattern_mstr_header, analysis_text, re.IGNORECASE):
-                self.logger.info("Replacing 'Strategy Inc (MSTR)' in headers with 'Strategy Inc Class A (MSTR)'")
-                analysis_text = re.sub(pattern_mstr_header, r'\1Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
+            # Pattern 1: In headers with timestamp (should already be removed, but handle just in case)
+            pattern_mstr_header1 = r'(###\s+)Strategy Inc\s*\(MSTR\)\*\*Timestamp\*\*:\s*[0-9:]+'
+            if re.search(pattern_mstr_header1, analysis_text, re.IGNORECASE):
+                self.logger.info("Replacing 'Strategy Inc (MSTR)**Timestamp**: X:XX' in headers with 'Strategy Inc Class A (MSTR)'")
+                analysis_text = re.sub(pattern_mstr_header1, r'\1Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
             
-            # Pattern 2: Anywhere else in the text
+            # Pattern 2: In headers without timestamp
+            pattern_mstr_header2 = r'(###\s+)Strategy Inc\s*\(MSTR\)(?:[^\n]*)?'
+            if re.search(pattern_mstr_header2, analysis_text, re.IGNORECASE):
+                self.logger.info("Replacing 'Strategy Inc (MSTR)' in headers with 'Strategy Inc Class A (MSTR)'")
+                analysis_text = re.sub(pattern_mstr_header2, r'\1Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
+            
+            # Pattern 3: Anywhere else in the text
             pattern_mstr = r'Strategy Inc\s*\(MSTR\)'
             if re.search(pattern_mstr, analysis_text, re.IGNORECASE):
                 self.logger.info("Replacing 'Strategy Inc (MSTR)' with 'Strategy Inc Class A (MSTR)'")
                 analysis_text = re.sub(pattern_mstr, 'Strategy Inc Class A (MSTR)', analysis_text, flags=re.IGNORECASE)
             
-            # Pattern 3: Also handle "MicroStrategy Inc." if it appears (legacy name)
+            # Pattern 4: Also handle "MicroStrategy Inc." if it appears (legacy name)
             pattern_mstr_legacy = r'MicroStrategy Inc\.\s*\(MSTR\)'
             if re.search(pattern_mstr_legacy, analysis_text, re.IGNORECASE):
                 self.logger.info("Replacing 'MicroStrategy Inc. (MSTR)' with 'Strategy Inc Class A (MSTR)'")
