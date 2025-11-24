@@ -2756,6 +2756,70 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 self.logger.info("Removing ' - Kripto Para' suffix from section headers")
                 analysis_text = re.sub(pattern_kripto_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
+            # CRITICAL POST-PROCESSING: Fix headers with content appended (e.g., "Company (TICKER)- Content here")
+            # Pattern: ### Company Name (TICKER)- Content that should be in bullet points
+            def extract_content_from_header(match):
+                header_part = match.group(1)  # Company Name (TICKER)
+                appended_content = match.group(2)  # Content after dash
+                
+                # Find the section starting with this header
+                escaped_header = re.escape(match.group(0))  # Full original header with content
+                section_pattern = rf'({escaped_header})\s*\n((?:[^\n]*\n)*?)(?=\n###|\Z)'
+                
+                def move_content_to_bullet(match):
+                    header_with_content = match.group(1)
+                    existing_content = match.group(2)
+                    
+                    # Check if content already exists as bullet point (avoid duplicates)
+                    if re.search(r'-\s*\*\*.*?\*\*:', existing_content, re.IGNORECASE):
+                        # Content already exists, just clean the header
+                        return f"{header_part}\n{existing_content}"
+                    
+                    # Move appended content to first bullet point
+                    # Format as Notes if it doesn't start with a field label
+                    if not re.match(r'-\s*\*\*(?:Timestamp|Sentiment|Resistance|Support|Target|Notes|Entry|Stop|Risk)', appended_content, re.IGNORECASE):
+                        bullet_content = f"- **Notes**: {appended_content.strip()}"
+                    else:
+                        bullet_content = f"- {appended_content.strip()}"
+                    
+                    return f"{header_part}\n{bullet_content}\n{existing_content}"
+                
+                # Apply the fix
+                if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
+                    self.logger.info(f"Extracting content from header: {header_part} -> moving '{appended_content[:50]}...' to bullet point")
+                    return re.sub(section_pattern, move_content_to_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
+                return analysis_text
+            
+            # Pattern to match headers with appended content after dash
+            # Matches: ### Company Name (TICKER)- Content here
+            pattern_header_with_content = r'^(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\s*-\s*([^\n]+)'
+            if re.search(pattern_header_with_content, analysis_text, re.MULTILINE):
+                self.logger.info("Found headers with appended content - extracting to bullet points")
+                # Process each match
+                matches = list(re.finditer(pattern_header_with_content, analysis_text, re.MULTILINE))
+                for match in reversed(matches):  # Process in reverse to maintain positions
+                    header_part = match.group(1)
+                    appended_content = match.group(2).strip()
+                    
+                    # Find the section and move content to bullet point
+                    escaped_full_header = re.escape(match.group(0))
+                    section_pattern = rf'({escaped_full_header})\s*\n((?:[^\n]*\n)*?)(?=\n###|\Z)'
+                    
+                    def move_to_bullet(m):
+                        header_with_content = m.group(1)
+                        existing_content = m.group(2)
+                        
+                        # Check if content already exists as bullet point
+                        if re.search(r'-\s*\*\*(?:Timestamp|Sentiment|Resistance|Support|Target|Notes)', existing_content, re.IGNORECASE):
+                            # Content exists, just clean header
+                            return f"{header_part}\n{existing_content}"
+                        
+                        # Format appended content as Notes bullet point
+                        bullet_content = f"- **Notes**: {appended_content}"
+                        return f"{header_part}\n{bullet_content}\n{existing_content}"
+                    
+                    analysis_text = re.sub(section_pattern, move_to_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
+            
             # CRITICAL POST-PROCESSING: Fix redundant company names (e.g., "Apple Inc. (AAPL) - Apple Inc.")
             pattern_redundant = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*\1'
             if re.search(pattern_redundant, analysis_text, re.IGNORECASE):
