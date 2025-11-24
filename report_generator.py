@@ -297,8 +297,14 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
                     logger.warning(f"Skipping ticker with invalid ticker code: {ticker_data}")
                     continue
                 if not company_name or company_name == 'Unknown Company':
-                    # Try to get from validated map
-                    company_name = self.validated_ticker_map.get(ticker, 'Unknown Company')
+                    # Try to get from validated map first
+                    company_name = self.validated_ticker_map.get(ticker, None)
+                    # If not in validated map, check if it's a required asset
+                    if not company_name and ticker in REQUIRED_ASSETS:
+                        company_name = self._get_asset_name(ticker)
+                    # Final fallback
+                    if not company_name:
+                        company_name = 'Unknown Company'
                 
                 report.append(f"### {company_name} ({ticker})")
                 report.append(f"- **Timestamp**: {ticker_data.get('timestamp', 'Not mentioned')}")
@@ -483,29 +489,30 @@ Return ONLY the JSON object, no markdown formatting, no code blocks, no explanat
     
     def _apply_ticker_corrections_to_data(self, structured_data: Dict[str, Any]) -> Dict[str, Any]:
         """Apply ticker corrections to extracted JSON data"""
-        if not self.ticker_corrections:
-            return structured_data
-        
         corrected_tickers = []
         for ticker_data in structured_data.get('tickers', []):
             ticker = ticker_data.get('ticker', '').upper()
+            original_company_name = ticker_data.get('company_name', 'Unknown Company')
+            
             # Apply correction if needed
-            if ticker in self.ticker_corrections:
+            if self.ticker_corrections and ticker in self.ticker_corrections:
                 corrected_ticker = self.ticker_corrections[ticker]
                 ticker_data['ticker'] = corrected_ticker
-                # Update company name if available in validated map or use asset name
-                if corrected_ticker in self.validated_ticker_map:
-                    ticker_data['company_name'] = self.validated_ticker_map[corrected_ticker]
-                elif corrected_ticker in REQUIRED_ASSETS:
-                    ticker_data['company_name'] = self._get_asset_name(corrected_ticker)
-                ticker = corrected_ticker
+                ticker = corrected_ticker  # Update ticker variable for subsequent checks
             
-            # Also ensure company names are set for required assets
-            if ticker in REQUIRED_ASSETS and (not ticker_data.get('company_name') or ticker_data.get('company_name') == 'Unknown Company'):
-                if ticker in self.validated_ticker_map:
-                    ticker_data['company_name'] = self.validated_ticker_map[ticker]
-                else:
-                    ticker_data['company_name'] = self._get_asset_name(ticker)
+            # Ensure company name is set properly (priority: validated map > asset name > original)
+            if ticker in self.validated_ticker_map:
+                # Use validated company name if available
+                ticker_data['company_name'] = self.validated_ticker_map[ticker]
+            elif ticker in REQUIRED_ASSETS:
+                # Use asset name for required assets
+                ticker_data['company_name'] = self._get_asset_name(ticker)
+            elif original_company_name and original_company_name != 'Unknown Company':
+                # Keep original if it's not Unknown Company
+                ticker_data['company_name'] = original_company_name
+            else:
+                # Final fallback
+                ticker_data['company_name'] = 'Unknown Company'
             
             corrected_tickers.append(ticker_data)
         
