@@ -2666,92 +2666,57 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 analysis_text = re.sub(pattern_kripto_varlik_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
-            # Strategy: Extract timestamps from headers and ensure they appear as bullet points
-            # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)" + bullet point
-            # IMPORTANT: Timestamp is directly attached to closing parenthesis with NO space: (TICKER)**Timestamp**
-            # Pattern: ### Company Name (TICKER)**Timestamp**: 0:07
+            # SIMPLE APPROACH: Remove timestamps from ANY header line, then add them as bullet points
+            # Pattern matches: ### Anything**Timestamp**: X:XX or ### Anything Timestamp: X:XX
             
-            # First, extract timestamps from headers and store them for insertion
-            def extract_and_remove_timestamp_from_header(match):
-                """Extract timestamp from header and return cleaned header + timestamp"""
-                header_part = match.group(1)  # The header part (### Company Name (TICKER))
-                timestamp_part = match.group(2) if match.lastindex >= 2 else None  # The timestamp part
-                
-                if timestamp_part:
-                    # Extract just the time (e.g., "0:07" from "**Timestamp**: 0:07")
-                    time_match = re.search(r'([0-9:]+)', timestamp_part)
-                    if time_match:
-                        timestamp_value = time_match.group(1)
-                        # Store for later insertion (we'll add it as a bullet point)
-                        return (header_part, timestamp_value)
-                return (header_part, None)
-            
-            # Pattern to match headers with timestamps and extract both parts
-            pattern_timestamp_extract = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*([0-9:]+)'
-            
-            # Find all headers with timestamps and extract them
+            # Step 1: Extract timestamps from headers BEFORE removing them
             headers_with_timestamps = {}
-            for match in re.finditer(pattern_timestamp_extract, analysis_text, re.IGNORECASE):
-                header_part = match.group(1)
+            
+            # Match any header line that contains a timestamp
+            # Pattern: ### ... (TICKER)**Timestamp**: X:XX or variations
+            header_timestamp_pattern = r'^(###\s+.*?\([A-Z]{1,5}\))(?:\s*)?\*\*Timestamp\*\*:\s*([0-9:]+)'
+            for match in re.finditer(header_timestamp_pattern, analysis_text, re.MULTILINE | re.IGNORECASE):
+                header_part = match.group(1).strip()
                 timestamp_value = match.group(2)
-                # Use header as key (normalized)
-                header_key = header_part.strip()
-                headers_with_timestamps[header_key] = timestamp_value
-                self.logger.info(f"Found timestamp in header: {header_key} -> {timestamp_value}")
+                headers_with_timestamps[header_part] = timestamp_value
+                self.logger.info(f"Extracted timestamp from header: {header_part} -> {timestamp_value}")
             
-            # Now remove timestamps from headers (iterative approach)
-            timestamp_removed = True
-            iterations = 0
-            while timestamp_removed and iterations < 5:  # Max 5 iterations to prevent infinite loops
-                timestamp_removed = False
-                iterations += 1
-                
-                # Pattern 1: Direct attachment with **Timestamp**: format
-                pattern_timestamp_direct = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))\*\*Timestamp\*\*:\s*[0-9:]+'
-                if re.search(pattern_timestamp_direct, analysis_text, re.IGNORECASE):
-                    self.logger.info(f"Removing timestamps from section headers (direct pattern, iteration {iterations})")
-                    analysis_text = re.sub(pattern_timestamp_direct, r'\1', analysis_text, flags=re.IGNORECASE)
-                    timestamp_removed = True
-                
-                # Pattern 2: Catch-all for any timestamp variation
-                pattern_timestamp_catchall = r'(###\s+[^\n(]+?\s*\([A-Z]{1,5}\))(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*[0-9:]+'
-                if re.search(pattern_timestamp_catchall, analysis_text, re.IGNORECASE):
-                    self.logger.info(f"Removing timestamps from section headers (catch-all pattern, iteration {iterations})")
-                    analysis_text = re.sub(pattern_timestamp_catchall, r'\1', analysis_text, flags=re.IGNORECASE)
-                    timestamp_removed = True
+            # Step 2: Remove ALL timestamp patterns from headers (simple and aggressive)
+            # Pattern 1: **Timestamp**: X:XX (with asterisks)
+            analysis_text = re.sub(r'(\*\*Timestamp\*\*:\s*[0-9:]+)', '', analysis_text, flags=re.IGNORECASE)
             
-            # Now ensure timestamps appear as bullet points: Add extracted timestamps as bullet points if missing
-            if headers_with_timestamps:
-                for header_key, timestamp_value in headers_with_timestamps.items():
-                    # Find the section starting with this header
-                    # Pattern: header_key followed by newline and list items (or empty section)
-                    header_pattern = re.escape(header_key)
-                    # Look for the section - match header, optional whitespace, newline, then any content until next header or end
-                    # Use non-greedy match to stop at next ### header
-                    section_pattern = rf'({header_pattern})\s*\n((?:-.*\n|.*\n)*?)(?=\n###|\Z)'
+            # Pattern 2: Timestamp: X:XX (without asterisks, just in case)
+            # But only if it's on a header line (starts with ###)
+            def remove_timestamp_from_header_line(match):
+                header_line = match.group(0)
+                # Remove "Timestamp: X:XX" pattern
+                cleaned = re.sub(r'\s*[Tt]imestamp\s*:\s*[0-9:]+', '', header_line, flags=re.IGNORECASE)
+                return cleaned
+            
+            analysis_text = re.sub(r'^(###[^\n]*?)\s*[Tt]imestamp\s*:\s*[0-9:]+', remove_timestamp_from_header_line, analysis_text, flags=re.MULTILINE | re.IGNORECASE)
+            
+            # Step 3: Add extracted timestamps as bullet points
+            for header_key, timestamp_value in headers_with_timestamps.items():
+                # Find the section starting with this header
+                # Escape the header for regex matching
+                escaped_header = re.escape(header_key)
+                # Match: header + newline + content until next ### or end
+                section_pattern = rf'({escaped_header})\s*\n((?:[^\n]*\n)*?)(?=\n###|\Z)'
+                
+                def add_timestamp_bullet(match):
+                    header = match.group(1)
+                    content = match.group(2)
                     
-                    def ensure_timestamp_bullet(match):
-                        header = match.group(1)
-                        existing_content = match.group(2)
-                        
-                        # Check if timestamp bullet point already exists (avoid duplicates)
-                        if re.search(r'-\s*\*\*Timestamp\*\*:\s*', existing_content, re.IGNORECASE):
-                            # Timestamp already exists as bullet point, don't add
-                            self.logger.debug(f"Timestamp already exists as bullet point for {header_key}, skipping")
-                            return match.group(0)
-                        
-                        # Add timestamp as first bullet point
-                        timestamp_bullet = f"- **Timestamp**: {timestamp_value}\n"
-                        # If section has content, add before it; otherwise just add the bullet
-                        if existing_content.strip():
-                            return f"{header}\n{timestamp_bullet}{existing_content}"
-                        else:
-                            return f"{header}\n{timestamp_bullet}"
+                    # Check if timestamp already exists as bullet point
+                    if re.search(r'-\s*\*\*Timestamp\*\*:\s*', content, re.IGNORECASE):
+                        return match.group(0)  # Already exists, don't add
                     
-                    # Apply the fix
-                    if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
-                        self.logger.info(f"Adding timestamp as bullet point for header: {header_key} -> {timestamp_value}")
-                        analysis_text = re.sub(section_pattern, ensure_timestamp_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
+                    # Add timestamp as first bullet point
+                    return f"{header}\n- **Timestamp**: {timestamp_value}\n{content}"
+                
+                if re.search(section_pattern, analysis_text, re.MULTILINE | re.DOTALL):
+                    self.logger.info(f"Adding timestamp bullet point for: {header_key} -> {timestamp_value}")
+                    analysis_text = re.sub(section_pattern, add_timestamp_bullet, analysis_text, flags=re.MULTILINE | re.DOTALL)
             
             # Also handle " - Kripto Para" format (e.g., "Bitcoin - Kripto Para")
             pattern_kripto_standalone = r'###\s+([^\n(]+?)\s*-\s*Kripto Para'
