@@ -2582,6 +2582,7 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 r'Kripto Para',
                 r'PİYASA GÖSTERGESİ',
                 r'Market Indicator',
+                r'Endeks',  # Add "Endeks" suffix removal
             ]
             for piyasa_pattern in piyasa_patterns:
                 pattern_piyasalar = rf'([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*{piyasa_pattern}'
@@ -2591,46 +2592,25 @@ The following are market indices, NOT individual stock tickers. When mentioned i
             
             # CRITICAL POST-PROCESSING: Fix timestamps appearing in section headers
             # Fix patterns like "Company Name (TICKER)**Timestamp**: 0:07" -> "Company Name (TICKER)"
-            # Handle various formats: **Timestamp**, Timestamp, with/without colons, with/without spaces
-            timestamp_patterns = [
-                r'\*\*Timestamp\*\*:\s*[0-9:]+',      # **Timestamp**: 0:07
-                r'\*\*Timestamp\*\*:\s*[0-9]+',       # **Timestamp**: 0
-                r'\*\*Timestamp\*\*\s+[0-9:]+',       # **Timestamp** 0:07 (no colon)
-                r'\*\*Timestamp\*\*\s+[0-9]+',       # **Timestamp** 0 (no colon)
-                r'\*\*timestamp\*\*:\s*[0-9:]+',     # **timestamp**: 0:07 (lowercase)
-                r'\*\*timestamp\*\*\s+[0-9:]+',       # **timestamp** 0:07 (lowercase, no colon)
-                r'Timestamp:\s*[0-9:]+',              # Timestamp: 0:07
-                r'Timestamp\s+[0-9:]+',              # Timestamp 0:07 (no colon)
-                r'timestamp:\s*[0-9:]+',              # timestamp: 0:07 (lowercase)
-                r'timestamp\s+[0-9:]+',               # timestamp 0:07 (lowercase, no colon)
-                r'\*\*Timestamp\*\*[:\s]+[0-9:]+',    # **Timestamp**: 0:07 or **Timestamp** 0:07 (flexible)
-                r'[Tt]imestamp[:\s]+[0-9:]+',        # Timestamp: 0:07 or Timestamp 0:07 (flexible)
-            ]
-            for timestamp_pattern in timestamp_patterns:
-                # Pattern 1: Timestamp immediately after ticker in same line
-                pattern_timestamp_in_header = rf'###\s+([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*{timestamp_pattern}'
-                if re.search(pattern_timestamp_in_header, analysis_text, re.IGNORECASE):
-                    self.logger.info(f"Removing timestamps from section headers (pattern: {timestamp_pattern})")
-                    analysis_text = re.sub(pattern_timestamp_in_header, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
-                
-                # Pattern 2: Timestamp with extra spaces between ticker and timestamp
-                pattern_timestamp_in_header2 = rf'###\s+([^*\n(]+?)\s+\(([A-Z]{{1,5}})\)\s+{timestamp_pattern}'
-                if re.search(pattern_timestamp_in_header2, analysis_text, re.IGNORECASE):
-                    self.logger.info(f"Removing timestamps from section headers (pattern 2: {timestamp_pattern})")
-                    analysis_text = re.sub(pattern_timestamp_in_header2, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
-                
-                # Pattern 3: Timestamp on new line immediately after header (multiline)
-                pattern_timestamp_in_header3 = rf'###\s+([^*\n(]+?)\s*\(([A-Z]{{1,5}})\)\s*\n\s*{timestamp_pattern}'
-                if re.search(pattern_timestamp_in_header3, analysis_text, re.IGNORECASE | re.MULTILINE):
-                    self.logger.info(f"Removing timestamps from section headers (pattern 3 - multiline: {timestamp_pattern})")
-                    analysis_text = re.sub(pattern_timestamp_in_header3, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE | re.MULTILINE)
+            # Use a more direct approach: match the entire header line and remove timestamp part
+            # Pattern: ### Company Name (TICKER)**Timestamp**: 0:07
+            pattern_timestamp_direct = r'(###\s+[^*\n(]+?\s*\([A-Z]{1,5}\))\s*\*\*Timestamp\*\*:\s*[0-9:]+'
+            if re.search(pattern_timestamp_direct, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing timestamps from section headers (direct pattern)")
+                analysis_text = re.sub(pattern_timestamp_direct, r'\1', analysis_text, flags=re.IGNORECASE)
+            
+            # Also handle " - Kripto Para" format (e.g., "Bitcoin - Kripto Para")
+            pattern_kripto_standalone = r'###\s+([^*\n(]+?)\s*-\s*Kripto Para'
+            if re.search(pattern_kripto_standalone, analysis_text, re.IGNORECASE):
+                self.logger.info("Removing ' - Kripto Para' suffix from section headers")
+                analysis_text = re.sub(pattern_kripto_standalone, r'### \1', analysis_text, flags=re.IGNORECASE)
             
             # Final catch-all: Remove any remaining timestamp patterns in headers (more aggressive)
             # This catches any timestamp-like pattern that might have been missed
-            pattern_timestamp_catchall = r'###\s+([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*[0-9:]+'
+            pattern_timestamp_catchall = r'(###\s+[^*\n(]+?\s*\([A-Z]{1,5}\))\s*(?:\*\*)?[Tt]imestamp(?:\*\*)?[:\s]*[0-9:]+'
             if re.search(pattern_timestamp_catchall, analysis_text, re.IGNORECASE):
                 self.logger.info("Removing timestamps from section headers (catch-all pattern)")
-                analysis_text = re.sub(pattern_timestamp_catchall, r'### \1 (\2)', analysis_text, flags=re.IGNORECASE)
+                analysis_text = re.sub(pattern_timestamp_catchall, r'\1', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix redundant company names (e.g., "Apple Inc. (AAPL) - Apple Inc.")
             pattern_redundant = r'([^*\n(]+?)\s*\(([A-Z]{1,5})\)\s*-\s*\1'
@@ -2639,6 +2619,14 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                 analysis_text = re.sub(pattern_redundant, r'\1 (\2)', analysis_text, flags=re.IGNORECASE)
             
             # CRITICAL POST-PROCESSING: Fix MSTR company name - use "MicroStrategy Inc." instead of "Strategy Inc"
+            # Must happen AFTER timestamp removal to catch all cases
+            # Pattern 1: In headers
+            pattern_mstr_header = r'(###\s+)Strategy Inc\s*\(MSTR\)'
+            if re.search(pattern_mstr_header, analysis_text, re.IGNORECASE):
+                self.logger.info("Replacing 'Strategy Inc (MSTR)' in headers with 'MicroStrategy Inc. (MSTR)'")
+                analysis_text = re.sub(pattern_mstr_header, r'\1MicroStrategy Inc. (MSTR)', analysis_text, flags=re.IGNORECASE)
+            
+            # Pattern 2: Anywhere else in the text
             pattern_mstr = r'Strategy Inc\s*\(MSTR\)'
             if re.search(pattern_mstr, analysis_text, re.IGNORECASE):
                 self.logger.info("Replacing 'Strategy Inc (MSTR)' with 'MicroStrategy Inc. (MSTR)'")
