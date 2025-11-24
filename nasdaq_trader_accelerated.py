@@ -28,6 +28,7 @@ import yfinance as yf
 from dotenv import load_dotenv
 import warnings
 from ticker_validator import get_ticker_validator, validate_ticker, validate_tickers
+from report_generator import ReportGenerator
 
 # Load environment variables
 load_dotenv()
@@ -84,10 +85,14 @@ class AcceleratedNasdaqTrader:
         ticker_corrections_config = self.config.get('TICKER_CORRECTIONS', {})
         self.ticker_corrections = {k.upper(): v.upper() for k, v in ticker_corrections_config.items()} if ticker_corrections_config else {}
         
+        # Initialize ReportGenerator
+        self.report_generator = ReportGenerator(self.config)
+        
         print(f"Accelerated Nasdaq Trader Initialized")
         print(f"   System: {self.system_info['cpu_cores']} cores, {self.system_info['ram_gb']:.1f}GB RAM")
         print(f"   Optimal: {self.optimal_settings['parallel_videos']} parallel videos")
         print(f"   Ticker Validation: Enabled with caching")
+        print(f"   Report Generator: Using structured two-step approach")
         if self.ticker_corrections:
             print(f"   Ticker Corrections: {len(self.ticker_corrections)} mappings configured")
     
@@ -2129,9 +2134,47 @@ The following are market indices, NOT individual stock tickers. When mentioned i
                     self.logger.warning(f"Failed to generate content-based title: {e}")
                     # Keep the original fallback values
             
-            # Use proven prompt-based approach with enhanced anti-hallucination safeguards
-            # This approach generates comprehensive, well-formatted reports directly
-            self.logger.info("Using enhanced prompt-based report generation...")
+            # Use ReportGenerator two-step approach for reliable formatting
+            self.logger.info("Using ReportGenerator two-step approach (extract JSON → format report)...")
+            
+            # Set extracted tickers and validation results in ReportGenerator
+            self.report_generator.set_extracted_tickers(
+                all_extracted_tickers_list,
+                validated_ticker_map,
+                self.ticker_corrections
+            )
+            
+            # Step 1: Extract structured data from transcript as JSON
+            self.logger.info("Step 1: Extracting structured data from transcript...")
+            try:
+                structured_data = self.report_generator.extract_structured_data(
+                    transcript,
+                    video_title,
+                    channel_name,
+                    model
+                )
+                self.logger.info(f"Successfully extracted structured data with {len(structured_data.get('tickers', []))} tickers")
+            except Exception as e:
+                self.logger.error(f"Failed to extract structured data: {e}")
+                raise Exception(f"Structured data extraction failed: {e}")
+            
+            # Step 2: Format structured data into final report
+            self.logger.info("Step 2: Formatting structured data into report...")
+            try:
+                analysis_text = self.report_generator.format_report(structured_data, video_metadata)
+                self.logger.info("Successfully formatted report")
+            except Exception as e:
+                self.logger.error(f"Failed to format report: {e}")
+                raise Exception(f"Report formatting failed: {e}")
+            
+            # Skip the old prompt-based generation - we're using ReportGenerator now
+            # (Old prompt code removed - kept for reference but not executed)
+            return analysis_text
+            
+            # OLD PROMPT-BASED CODE BELOW (DISABLED - USING REPORTGENERATOR INSTEAD)
+            # ========================================================================
+            # All code below is kept for reference but never executed due to return above
+            # The following is the old prompt-based approach that has been replaced
             
             # Build metadata strings before prompt to avoid f-string nesting issues
             video_info_lines = []
